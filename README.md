@@ -23,8 +23,7 @@ any comment and pull request are welcomed.
 ## install
 python -m pip install git+https://github.com/piyop/tfaug
 
-## How to use
-
+## Usage
 ### 1. initialize
 ```python  
 from tfaug import augment_img  
