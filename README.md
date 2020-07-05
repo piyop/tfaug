@@ -4,30 +4,24 @@ Tensorflow >= 2.0 image augmentation class for tf.data
 multiprocessing was officially deprecated Tensorflow >= 2.0. 
 If we use multiprocessing, which cause unexpected interruption while learning.
 
-I used keras ImageDataGenerator class before tf2, but it can no longer use multiprocessing.
-Therefore I made this class. This provides us easy way to augment image while learning using tf.data. tf.data is
-automatically map functions on multiprocesses except when using tf.py_funtion.
+Keras ImageDataGenerator class was widelly used before tf2, but it can no longer use multiprocessing and thus I made up this package. 
+This provides us easy way to augment image while learning using tf.data. tf.data is automatically map functions on multiprocesses except when using tf.py_funtion.
 
-This class augment input image and label image with same transformations at the sametime.
+## features
+ * This class can augment input image and label image with same transformations at the sametime.
 
-any comment and pull request welcomed.
+any comment and pull request are welcomed.
 
 ## dependancies
-tensorflow >= 2.0
-
-tensorflow-addons
-
- * for test srcipt
-
-pillow
-
-numpy
-
-matplotlib
-
+ * tensorflow >= 2.0
+ * tensorflow-addons
+### for test srcipt
+ * pillow
+ * numpy
+ * matplotlib
 
 ## install
-python -m pip install git+https://github.com/piyop/tf2_augimg
+python -m pip install git+https://github.com/piyop/tfaug
 
 ## How to use
 
@@ -46,7 +40,7 @@ arg_fun = argment_img(rotation=0,
                       training=True)  
 ```
 
-### 2. use
+### 2. use in tf.data.map() after batch()
 ```python 
 ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
                       tf.data.Dataset.from_tensor_slices(label))) \
@@ -54,4 +48,9 @@ ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
 model.fit(ds)
 ```
 
-detail is writtend in code and test code.
+detailed useage is writtend in test code.
+
+
+## future work
+ * add parameter output image size
+ * add other functions in tf.image
