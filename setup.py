@@ -18,7 +18,7 @@ setuptools.setup(
     description="tensorflow easy image augmantation",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/piyop/tf2_augimg",
+    url="https://github.com/piyop/tfaug",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
