@@ -30,7 +30,7 @@ python -m pip install git+https://github.com/piyop/tfaug
 ```python  
 from tfaug import augment_img 
 #set your augment parameters below:
-arg_fun = argment_img(rotation=0, 
+arg_fun = augment_img(rotation=0, 
                       standardize=False,
                       random_flip_left_right=True,
                       random_flip_up_down=True, 
@@ -38,7 +38,54 @@ arg_fun = argment_img(rotation=0,
                       random_zoom=.1,
                       random_brightness=.2,
                       random_saturation=None,
-                      training=True)  
+                      training=True) 
+                      
+"""
+augment_img.__init__() sets the parameters for augmantation.
+
+__call__() can take not only input image but also label image.
+Image and label image will be augmanted with same transformation at the same time.
+However, label image is not augmanted by random_brightness, random_saturation, standardize
+
+This augmantation is executed on batch images. Input image should be 4d Tensor(batch, x, y, channel)
+
+If training == False, this class will not augment image except standardize. 
+
+Parameters
+----------
+rotation : float, optional
+    rotation angle(degree). The default is 0.
+standardize : bool, optional
+    image standardization. The default is True.
+random_flip_left_right : bool, optional
+    The default is False.
+random_flip_up_down : bool, optional
+    The default is False.
+random_shift : Tuple[float, float], optional
+    random shift images.
+    vartical direction (-list[0], list[0])
+    holizontal direction  (-list[1], list[1])
+    Each values shows ratio of image size.
+    The default is None.
+random_zoom : float, optional
+    random zoom range -random_zoom to random_zoom.
+    value of random_zoom is ratio of image size
+    The default is None.
+random_brightness : float, optional
+    randomely adjust image brightness range 
+    [-max_delta, max_delta). 
+     The default is None.
+random_saturation : Tuple[float, float], optional
+    randomely adjust image brightness range between [lower, upper]. 
+    The default is None.
+training : bool, optional
+    If false, this class don't augment image except standardize. 
+    The default is False.
+Returns
+-------
+class instance : Callable[[tf.Tensor, tf.Tensor, bool], Tuple[tf.Tensor,tf.Tensor]]
+"""                     
+ 
 ```
 
 ### 2. use in tf.data.map() after batch()
