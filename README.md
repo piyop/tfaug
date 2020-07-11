@@ -43,14 +43,6 @@ arg_fun = augment_img(rotation=0,
 """
 augment_img.__init__() sets the parameters for augmantation.
 
-__call__() can take not only input image but also label image.
-Image and label image will be augmanted with same transformation at the same time.
-However, label image is not augmanted by random_brightness, random_saturation, standardize
-
-This augmantation is executed on batch images. Input image should be 4d Tensor(batch, x, y, channel)
-
-If training == False, this class will not augment image except standardize. 
-
 Parameters
 ----------
 rotation : float, optional
