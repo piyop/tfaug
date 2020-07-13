@@ -94,3 +94,4 @@ detailed useage is writtend in test code.
 ## future work
  * add parameter output image size
  * add other functions in tf.image
+ * add function writing separated TFRecord files from image files
