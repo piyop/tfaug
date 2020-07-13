@@ -86,6 +86,7 @@ class augment_img():
         self._random_brightness = random_brightness 
         self._random_saturation = random_saturation 
         
+    @tf.function
     def __call__(self, image : tf.Tensor, label : tf.Tensor=None) -> Tuple[tf.Tensor,tf.Tensor]:
         """
         
