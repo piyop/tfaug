@@ -11,8 +11,9 @@ tf.data is automatically map functions on multiprocesses except when using tf.py
 any comment and pull request are welcomed.
 
 ## features
- * Augment input image and label image with same transformations at the same time.
- * Augment on batch which is more efficient than augment each image.
+ * augment input image and label image with same transformations at the same time.
+ * augment on batch which is more efficient than augment each image.
+ * use only tensorflow operators and functions. Because any other operations or functions (e.g. numpy functions) cause limitation on multiprocess augmentation while using @tf.function to get a peformance [as mentined here](https://www.tensorflow.org/guide/function).
 
 ## dependancies
  * tensorflow >= 2.0
