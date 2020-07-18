@@ -25,6 +25,8 @@ class augment_img():
                 random_zoom : float  = None,
                 random_brightness : float = None,
                 random_saturation :Tuple[float, float] = None,
+                random_hue : float = None,
+                random_crop : Tuple[int, int] = None,
                 training : bool = False) \
                 -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor,tf.Tensor]]:
         """
@@ -65,6 +67,11 @@ class augment_img():
         random_saturation : Tuple[float, float], optional
             randomely adjust image brightness range between [lower, upper]. 
             The default is None.
+        random_hue : float, optional
+            randomely adjust hue of RGB images between [-random_hue, random_hue]
+        random_crop : Tuple[int, int], optional
+            randomely crop image with size [crop_height, crop_width]. 
+            The default is None.
         training : bool, optional
             If false, this class don't augment image except standardize. 
             The default is False.
@@ -73,8 +80,7 @@ class augment_img():
         -------
         class instance : Callable[[tf.Tensor, tf.Tensor, bool], Tuple[tf.Tensor,tf.Tensor]]
 
-        """
-        
+        """        
         
         self._training = training
         self._rotation = rotation
@@ -85,18 +91,20 @@ class augment_img():
         self._random_zoom = random_zoom
         self._random_brightness = random_brightness 
         self._random_saturation = random_saturation 
+        self._random_hue = random_hue
+        self._random_crop = random_crop 
         
     @tf.function
     def __call__(self, image : tf.Tensor, label : tf.Tensor=None) -> Tuple[tf.Tensor,tf.Tensor]:
         """
         
-
+        
         Parameters
         ----------
         image : 4d tf.Tensor (batch, x, y, channel)
             image to be augment.
         label : 4d tf.Tensor (batch, x, y, channel), optional
-            image to be augment.
+            label image to be augment.
 
         Returns
         -------
@@ -157,6 +165,13 @@ class augment_img():
                 angles = tf.random.uniform([tf.shape(image)[0]], -angle_rad, angle_rad)
                 image = tfa.image.rotate(image, angles, interpolation='BILINEAR')
                 
+            if self._random_crop:
+                
+                image = tf.image.random_crop(image, tf.stack((tf.shape(image)[0],
+                                                               tf.constant(self._random_crop[0]),
+                                                               tf.constant(self._random_crop[1]),
+                                                               tf.shape(image)[-1])))
+                
             #separete image and label
             if label is not None:
                 image, label = (image[:, :, :, :last_image_dim],
@@ -166,6 +181,8 @@ class augment_img():
                 image = tf.image.random_brightness(image, self._random_brightness)
             if self._random_saturation:
                 image = tf.image.random_saturation(image, *self._random_saturation)
+            if self._random_hue:
+                image = tf.image.random_hue(image, self._random_hue)
                 
         if self._standardize:
             image = tf.image.per_image_standardization(image)

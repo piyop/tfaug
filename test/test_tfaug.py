@@ -55,6 +55,8 @@ def test_tfdata():
                       random_zoom=random_zoom,
                       random_brightness=0.2,
                       random_saturation=random_saturation,
+                      random_hue = 0.2,
+                      random_crop = (256, 500),
                       training=training)
     
     ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
@@ -118,9 +120,10 @@ def test_augmentation():
         label=label[:,:,np.newaxis]
     label=np.tile(label, (BATCH_SIZE,1,1,1))
     
-    random_zoom=.1
-    random_shift=(.1,.1)
-#    random_shift=None
+    # random_zoom=.1
+    random_zoom=None
+    # random_shift=(.1,.1)
+    random_shift=None
     training=True
     random_saturation=False
     func=augment_img(rotation=0, 
@@ -131,6 +134,8 @@ def test_augmentation():
                       random_zoom=random_zoom,
                       random_brightness=0.2,
                       random_saturation=random_saturation,
+                      random_hue = 0.2,
+                      random_crop = None,
                       training=training)
     
     img, lbl=func(image, label)
