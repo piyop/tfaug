@@ -39,6 +39,8 @@ arg_fun = augment_img(rotation=0,
                       random_zoom=.1,
                       random_brightness=.2,
                       random_saturation=None,
+                      random_hue=.2,
+                      random_crop=(256,256),
                       training=True) 
                       
 """
