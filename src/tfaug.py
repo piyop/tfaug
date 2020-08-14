@@ -128,11 +128,12 @@ class augment_img():
         """
         in_size = tf.shape(image)[1:3]
         
+        #keep image channel dims
+        last_image_dim = tf.shape(image)[-1]
+        if label is not None:
+            image = tf.concat([image, label], axis=3)
+            
         if train:
-            #keep image channel dims
-            last_image_dim = tf.shape(image)[-1]
-            if label is not None:
-                image = tf.concat([image, label], axis=3)
                     
             if self._random_flip_left_right:
                 image = tf.image.random_flip_left_right(image)
@@ -165,18 +166,19 @@ class augment_img():
                 angles = tf.random.uniform([tf.shape(image)[0]], -angle_rad, angle_rad)
                 image = tfa.image.rotate(image, angles, interpolation='BILINEAR')
                 
-            if self._random_crop:
                 
-                image = tf.image.random_crop(image, tf.stack((tf.shape(image)[0],
-                                                               tf.constant(self._random_crop[0]),
-                                                               tf.constant(self._random_crop[1]),
-                                                               tf.shape(image)[-1])))
-                
-            #separete image and label
-            if label is not None:
-                image, label = (image[:, :, :, :last_image_dim],
-                    image[:, :, :, last_image_dim:])
+        if self._random_crop:
+            
+            image = tf.image.random_crop(image, tf.stack((tf.shape(image)[0],
+                                                           tf.constant(self._random_crop[0]),
+                                                           tf.constant(self._random_crop[1]),
+                                                           tf.shape(image)[-1])))
+        #separete image and label
+        if label is not None:
+            image, label = (image[:, :, :, :last_image_dim],
+                image[:, :, :, last_image_dim:])
         
+        if train:
             if self._random_brightness:
                 image = tf.image.random_brightness(image, self._random_brightness)
             if self._random_saturation:
