@@ -39,6 +39,8 @@ arg_fun = augment_img(rotation=0,
                       random_zoom=.1,
                       random_brightness=.2,
                       random_saturation=None,
+                      random_hue=.2,
+                      random_crop=(256,256),
                       training=True) 
                       
 """
@@ -46,34 +48,40 @@ augment_img.__init__() sets the parameters for augmantation.
 
 Parameters
 ----------
-rotation : float, optional
-    rotation angle(degree). The default is 0.
-standardize : bool, optional
-    image standardization. The default is True.
-random_flip_left_right : bool, optional
-    The default is False.
-random_flip_up_down : bool, optional
-    The default is False.
-random_shift : Tuple[float, float], optional
-    random shift images.
-    vartical direction (-list[0], list[0])
-    holizontal direction  (-list[1], list[1])
-    Each values shows ratio of image size.
-    The default is None.
-random_zoom : float, optional
-    random zoom range -random_zoom to random_zoom.
-    value of random_zoom is ratio of image size
-    The default is None.
-random_brightness : float, optional
-    randomely adjust image brightness range 
-    [-max_delta, max_delta). 
-     The default is None.
-random_saturation : Tuple[float, float], optional
-    randomely adjust image brightness range between [lower, upper]. 
-    The default is None.
-training : bool, optional
-    If false, this class don't augment image except standardize. 
-    The default is False.
+        rotation : float, optional
+            rotation angle(degree). The default is 0.
+        standardize : bool, optional
+            image standardization. The default is True.
+        random_flip_left_right : bool, optional
+            The default is False.
+        random_flip_up_down : bool, optional
+            The default is False.
+        random_shift : Tuple[float, float], optional
+            random shift images.
+            vartical direction (-list[0], list[0])
+            holizontal direction  (-list[1], list[1])
+            Each values shows ratio of image size.
+            The default is None.
+        random_zoom : float, optional
+            random zoom range -random_zoom to random_zoom.
+            value of random_zoom is ratio of image size
+            The default is None.
+        random_brightness : float, optional
+            randomely adjust image brightness range 
+            [-max_delta, max_delta). 
+             The default is None.
+        random_saturation : Tuple[float, float], optional
+            randomely adjust image brightness range between [lower, upper]. 
+            The default is None.
+        random_hue : float, optional
+            randomely adjust hue of RGB images between [-random_hue, random_hue]
+        random_crop : Tuple[int, int], optional
+            randomely crop image with size [crop_height, crop_width]. 
+            The default is None.
+        training : bool, optional
+            If false, this class don't augment image except standardize. 
+            The default is False.
+
 Returns
 -------
 class instance : Callable[[tf.Tensor, tf.Tensor, bool], Tuple[tf.Tensor,tf.Tensor]]
