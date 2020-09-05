@@ -120,7 +120,7 @@ class test_tfaug(unittest.TestCase):
             label=label[:,:,np.newaxis]
         label=np.tile(label, (BATCH_SIZE,1,1,1))
         
-        random_zoom=.1
+        random_zoom=.5
         random_shift=(.1,.1)
     #    random_shift=None
         training=True
@@ -133,6 +133,7 @@ class test_tfaug(unittest.TestCase):
                           random_zoom=random_zoom,
                           random_brightness=0.2,
                           random_saturation=random_saturation,
+                          random_crop = None,
                           training=training)
         
         img, lbl=func(image, label)
@@ -152,58 +153,70 @@ class test_tfaug(unittest.TestCase):
         plt.savefig('test_augmentation.png')
         
         
-    def test_random_crop(self):            
-    
-        #image and lbl which you want to test        
-        BATCH_SIZE=10
-        
-        image = np.tile(np.ones((1,500,500,1)), (10,1,1,3))
-        label = np.tile(np.ones((1,500,500,1)), (10,1,1,3))
-        
-        for training in (True, False):
-            with self.subTest(training=training):
-                func=augment_img(rotation=5, 
-                                  standardize=True,
-                                  random_flip_left_right=True,
-                                  random_flip_up_down=False, 
-                                  random_shift=(.1,.1), 
-                                  random_zoom=0.05,
-                                  random_brightness=.2,
-                                  random_saturation=False,
-                                  random_crop = (256, 256),
-                                  training=training)
+    def test_random_crop(self):
                 
-                img, lbl=func(image, label)
-                
-                self.assertEqual(img.shape, (10, 256, 256, 3))
-                self.assertEqual(lbl.shape, (10, 256, 256, 3))
-        
-    def test_no_label(self):
-        
         #image and lbl which you want to test
         testimg='img.png'
         testlbl='lbl.png'
         
         BATCH_SIZE=10
         
-        image = np.tile(np.ones((1,500,500,1)), (10,1,1,3))
-                
-        for training in (True, False):
-            with self.subTest(training=training):
-                func=augment_img(rotation=5, 
-                                  standardize=True,
-                                  random_flip_left_right=True,
-                                  random_flip_up_down=False, 
-                                  random_shift=(.1,.1), 
-                                  random_zoom=0.05,
-                                  random_brightness=.2,
-                                  random_saturation=False,
-                                  random_crop = (256, 256),
-                                  training=training)
-                
-                img=func(image)
-                self.assertEqual(img.shape, (10, 256, 256, 3))
-                
+        with Image.open(testimg) as img:
+            image=np.asarray(img)
+        image=np.tile(image, (BATCH_SIZE,1,1,1))
+        
+        with Image.open(testlbl) as label:
+            label=np.asarray(label)
+        if label.data.ndim == 2: 
+            #if label image have no channel, add channel axis
+            label=label[:,:,np.newaxis]
+        label=np.tile(label, (BATCH_SIZE,1,1,1))
+        
+        training = True
+        
+        func=augment_img(rotation=5, 
+                          standardize=True,
+                          random_flip_left_right=True,
+                          random_flip_up_down=False, 
+                          random_shift=(.1,.1), 
+                          random_zoom=0.05,
+                          random_brightness=.2,
+                          random_saturation=False,
+                          random_crop = 256,
+                          training=training)
+        
+        img, lbl=func(image, label)
+        
+        self.assertEqual(img.shape, (10, 256, 256, 4))
+        self.assertEqual(lbl.shape, (10, 256, 256, 4))
+        
+        
+        training = False
+        
+        func=augment_img(rotation=0, 
+                          standardize=False,
+                          random_flip_left_right=True,
+                          random_flip_up_down=True, 
+                          random_shift=(0.1,0.1), 
+                          random_zoom=0.1,
+                          random_brightness=False,
+                          random_saturation=False,
+                          random_crop = 256,
+                          training=training)
+        
+        img, lbl=func(image, label)
+        lbl_offset = (label.shape[1] - 256) // 2
+        
+        self.assertEqual(img.shape, (10, 256, 256, 4))
+        self.assertEqual(lbl.shape, (10, 256, 256, 4))
+        
+        self.assertTrue(np.allclose(lbl.numpy(),
+                               label[:,lbl_offset:lbl_offset+256,lbl_offset:lbl_offset+256,:]))
+        self.assertTrue(np.allclose(img.numpy(),
+                               image[:,lbl_offset:lbl_offset+256,lbl_offset:lbl_offset+256,:]))
+        
+        
         
 if __name__ == '__main__':
+    pass
     unittest.main()

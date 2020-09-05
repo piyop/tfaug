@@ -9,6 +9,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 from typing import Tuple, Callable
 
+
 class augment_img():
     """
     
@@ -26,7 +27,7 @@ class augment_img():
                 random_brightness : float = None,
                 random_saturation :Tuple[float, float] = None,
                 random_hue : float = None,
-                random_crop : Tuple[int, int] = None,
+                random_crop : int = None,
                 training : bool = False) \
                 -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor,tf.Tensor]]:
         """
@@ -37,6 +38,7 @@ class augment_img():
         However, label image is not augmanted by random_brightness, random_saturation, standardize
         
         This augmantation is executed on batch images. Input image should be 4d Tensor(batch, x, y, channel)
+        Image x and y size is same as premise.
         
         If training == False, this class will not augment image except standardize. 
         
@@ -69,8 +71,8 @@ class augment_img():
             The default is None.
         random_hue : float, optional
             randomely adjust hue of RGB images between [-random_hue, random_hue]
-        random_crop : Tuple[int, int], optional
-            randomely crop image with size [crop_height, crop_width]. 
+        random_crop : int, optional
+            randomely crop image with size [x,y] = [random_crop, random_crop]. 
             The default is None.
         training : bool, optional
             If false, this class don't augment image except standardize. 
@@ -94,6 +96,7 @@ class augment_img():
         self._random_hue = random_hue
         self._random_crop = random_crop 
         
+        
     @tf.function
     def __call__(self, image : tf.Tensor, label : tf.Tensor=None) -> Tuple[tf.Tensor,tf.Tensor]:
         """
@@ -109,10 +112,11 @@ class augment_img():
         Returns
         -------
         Tuple[tf.Tensor, tf.Tensor]
-            augmented image and label.
+            augmented images and labels.
 
         """
         return self._augmentation(image, label, self._training)
+    
     
     def _augmentation(self, image, label = None, train = False):
         """
@@ -127,23 +131,27 @@ class augment_img():
             training or not
         """
         in_size = tf.shape(image)[1:3]
+        out_size = in_size
         
         #keep image channel dims
         last_image_dim = tf.shape(image)[-1]
         if label is not None:
             image = tf.concat([image, label], axis=3)
             
-        if train:
-                    
+        if train:                    
             if self._random_flip_left_right:
                 image = tf.image.random_flip_left_right(image)
             if self._random_flip_up_down:
                 image = tf.image.random_flip_up_down(image)
                 
-            if self._random_zoom or self._random_shift:
+            if self._random_zoom or self._random_shift or self._random_crop:
                 zoom = tf.repeat(tf.constant(0, dtype=tf.float32),tf.shape(image)[0])
                 if self._random_zoom:
                     zoom = tf.random.uniform([tf.shape(image)[0]], -self._random_zoom, self._random_zoom)
+                    
+                if self._random_crop:
+                    zoom += tf.cast(self._random_crop / in_size[0] - 1, tf.float32)
+                    out_size = tf.constant((self._random_crop, self._random_crop))
                 
                 shift_x, shift_y = tf.repeat(tf.constant(0, dtype=tf.float32),tf.shape(image)[0]),tf.repeat(tf.constant(0, dtype=tf.float32),tf.shape(image)[0])
                 if self._random_shift:
@@ -157,7 +165,7 @@ class augment_img():
                 image = tf.image.crop_and_resize(image, 
                                                   boxes, 
                                                   num_boxes, 
-                                                  in_size,
+                                                  out_size,
                                                   method='bilinear', 
                                                   extrapolation_value=0)
                 
@@ -167,12 +175,16 @@ class augment_img():
                 image = tfa.image.rotate(image, angles, interpolation='BILINEAR')
                 
                 
-        if self._random_crop:
+        elif self._random_crop:#not train and random_crop
+            #assume width and height is same
+            offset_height = (in_size[0] - self._random_crop) // 2
+            target_height = self._random_crop
+            image = tf.image.crop_to_bounding_box(image, 
+                                                  offset_height, 
+                                                  offset_height, 
+                                                  target_height, 
+                                                  target_height)
             
-            image = tf.image.random_crop(image, tf.stack((tf.shape(image)[0],
-                                                           tf.constant(self._random_crop[0]),
-                                                           tf.constant(self._random_crop[1]),
-                                                           tf.shape(image)[-1])))
         #separete image and label
         if label is not None:
             image, label = (image[:, :, :, :last_image_dim],
