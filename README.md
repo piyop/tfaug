@@ -40,7 +40,7 @@ arg_fun = augment_img(rotation=0,
                       random_brightness=.2,
                       random_saturation=None,
                       random_hue=.2,
-                      random_crop=(256,256),
+                      random_crop=256,
                       training=True) 
                       
 """
@@ -75,8 +75,9 @@ Parameters
             The default is None.
         random_hue : float, optional
             randomely adjust hue of RGB images between [-random_hue, random_hue]
-        random_crop : Tuple[int, int], optional
-            randomely crop image with size [crop_height, crop_width]. 
+        random_crop : int, optional
+            randomely crop image with size [random_crop, random_crop]. 
+            randome crop height and width is assumed same.
             The default is None.
         training : bool, optional
             If false, this class don't augment image except standardize. 
@@ -101,6 +102,6 @@ detailed useage is writtend in test code.
 
 
 ## future work
- * add parameter output image size
+ * add parameter output image size => random_crop can change output imase size
  * add other functions in tf.image
  * add function writing separated TFRecord files from image files
