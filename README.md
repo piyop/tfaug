@@ -23,6 +23,18 @@ any comment and pull request are welcomed.
  * numpy
  * matplotlib
 
+## supported transformations:
+ * rotation
+ * standardize
+ * random_flip_left_right
+ * random_flip_up_down
+ * random_shift
+ * random_zoom
+ * random_brightness
+ * random_saturation
+ * random_hue
+ * random_crop
+
 ## install
 python -m pip install git+https://github.com/piyop/tfaug
 
