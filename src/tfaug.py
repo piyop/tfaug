@@ -18,7 +18,7 @@ class augment_img():
     """
     
     def __init__(self,
-                rotation : float = 0 , 
+                random_rotation : float = 0 , 
                 standardize : bool = False,
                 random_flip_left_right : bool = False,
                 random_flip_up_down : bool = False, 
@@ -44,8 +44,8 @@ class augment_img():
         
         Parameters
         ----------
-        rotation : float, optional
-            rotation angle(degree). The default is 0.
+        random_rotation : float, optional
+            maximum rotation angle(degree). The default is 0.
         standardize : bool, optional
             image standardization. The default is True.
         random_flip_left_right : bool, optional
@@ -85,7 +85,7 @@ class augment_img():
         """        
         
         self._training = training
-        self._rotation = rotation
+        self._random_rotation = random_rotation
         self._standardize = standardize 
         self._random_flip_left_right = random_flip_left_right
         self._random_flip_up_down = random_flip_up_down  
@@ -169,8 +169,8 @@ class augment_img():
                                                   method='bilinear', 
                                                   extrapolation_value=0)
                 
-            if self._rotation > 0:
-                angle_rad = self._rotation * 3.141592653589793 / 180.0
+            if self._random_rotation > 0:
+                angle_rad = self._random_rotation * 3.141592653589793 / 180.0
                 angles = tf.random.uniform([tf.shape(image)[0]], -angle_rad, angle_rad)
                 image = tfa.image.rotate(image, angles, interpolation='BILINEAR')
                 

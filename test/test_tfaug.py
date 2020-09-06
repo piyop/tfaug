@@ -50,7 +50,7 @@ class test_tfaug(unittest.TestCase):
         # random_saturation=(5,10),
         random_saturation=None
         training=True
-        arg_fun=augment_img(rotation=0, 
+        arg_fun=augment_img(random_rotation=0, 
                           standardize=False,
                           random_flip_left_right=True,
                           random_flip_up_down=True, 
@@ -125,7 +125,7 @@ class test_tfaug(unittest.TestCase):
     #    random_shift=None
         training=True
         random_saturation=False
-        func=augment_img(rotation=0, 
+        func=augment_img(random_rotation=0, 
                           standardize=True,
                           random_flip_left_right=True,
                           random_flip_up_down=True, 
@@ -174,7 +174,7 @@ class test_tfaug(unittest.TestCase):
         
         training = True
         
-        func=augment_img(rotation=5, 
+        func=augment_img(random_rotation=5, 
                           standardize=True,
                           random_flip_left_right=True,
                           random_flip_up_down=False, 
@@ -187,13 +187,13 @@ class test_tfaug(unittest.TestCase):
         
         img, lbl=func(image, label)
         
-        self.assertEqual(img.shape, (10, 256, 256, 4))
-        self.assertEqual(lbl.shape, (10, 256, 256, 4))
+        self.assertEqual(img.shape, (10, 256, 256, 3))
+        self.assertEqual(lbl.shape, (10, 256, 256, 3))
         
         
         training = False
         
-        func=augment_img(rotation=0, 
+        func=augment_img(random_rotation=0, 
                           standardize=False,
                           random_flip_left_right=True,
                           random_flip_up_down=True, 
@@ -207,8 +207,8 @@ class test_tfaug(unittest.TestCase):
         img, lbl=func(image, label)
         lbl_offset = (label.shape[1] - 256) // 2
         
-        self.assertEqual(img.shape, (10, 256, 256, 4))
-        self.assertEqual(lbl.shape, (10, 256, 256, 4))
+        self.assertEqual(img.shape, (10, 256, 256, 3))
+        self.assertEqual(lbl.shape, (10, 256, 256, 3))
         
         self.assertTrue(np.allclose(lbl.numpy(),
                                label[:,lbl_offset:lbl_offset+256,lbl_offset:lbl_offset+256,:]))
