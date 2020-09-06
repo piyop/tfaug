@@ -24,7 +24,7 @@ any comment and pull request are welcomed.
  * matplotlib
 
 ## supported transformations:
- * rotation
+ * random_rotation
  * standardize
  * random_flip_left_right
  * random_flip_up_down
@@ -43,7 +43,7 @@ python -m pip install git+https://github.com/piyop/tfaug
 ```python  
 from tfaug import augment_img 
 #set your augment parameters below:
-arg_fun = augment_img(rotation=0, 
+arg_fun = augment_img(random_rotation=0, 
                       standardize=False,
                       random_flip_left_right=True,
                       random_flip_up_down=True, 
@@ -60,8 +60,8 @@ augment_img.__init__() sets the parameters for augmantation.
 
 Parameters
 ----------
-        rotation : float, optional
-            rotation angle(degree). The default is 0.
+        random_rotation : float, optional
+            maximum rotation angle(degree). The default is 0.
         standardize : bool, optional
             image standardization. The default is True.
         random_flip_left_right : bool, optional
