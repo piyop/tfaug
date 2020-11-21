@@ -43,7 +43,7 @@ class augment_img():
         This augmantation is executed on batch images. Input image should be 4d Tensor(batch, x, y, channel)
         Image x and y size is same as premise.
         
-        If training == False, it will not augment image except standardize. 
+        If training == False, this class will not augment image except standardize. 
         
         Parameters
         ----------
@@ -67,8 +67,8 @@ class augment_img():
             value of random_zoom is ratio of image size
             The default is None.
         random_shear : Tuple[float, float], optional
+            randomely adjust y and x directional shear degree
             random_shear[0] : y-direction, random_shear[1] : x-direction
-            value means degree of each axis
             The default is None.
         random_brightness : float, optional
             randomely adjust image brightness range 
@@ -266,7 +266,7 @@ class augment_img():
             if self._random_hue:
                 image = tf.image.random_hue(image, self._random_hue)
             if self._random_contrast:
-                image = tf.image.random_contrast(image, self._random_contrast[0], self._random_contrast[1])
+                image = tf.image.random_contrast(image, *self._random_contrast)
                 
         if self._standardize:
             image = tf.image.per_image_standardization(image)
