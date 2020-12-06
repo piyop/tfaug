@@ -70,7 +70,7 @@ ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
 model.fit(ds)
 ```
 
-detailed useage is writtend in test code.
+detailed useage is written in test code.
 
 
 ## future work
