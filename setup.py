@@ -12,14 +12,15 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="tfaug",
-    version="0.0.2",
+    version="0.0.5",
     author="piyop",
     author_email="t.okuda@keio.com",
     description="tensorflow easy image augmantation",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/piyop/tfaug",
-    packages=setuptools.find_packages(),
+    package_dir={"": "src"},
+    packages=setuptools.find_packages(where="src"),
     license="MIT",
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -30,5 +31,5 @@ setuptools.setup(
         "tensorflow >= 2.0",
         "tensorflow-addons >= 0.7.1",   
         ],
-    python_requires='>=3.5',
+    python_requires='>=3.4',
 )

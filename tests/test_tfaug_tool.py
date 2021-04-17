@@ -2,18 +2,32 @@
 """
 Created on Thu Nov 19 22:41:06 2020
 
-@author: 005869
+@author: okuda
 """
 
 import io
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
 
 
 tfexample_format = {"image":tf.io.FixedLenFeature([], dtype=tf.string),
                     "msk":tf.io.FixedLenFeature([], dtype=tf.string)}
+
+
+def plot_dsresult(dataset, batch_size, num_batch, path_fig):
+    
+    fig, axs=plt.subplots(num_batch,batch_size, figsize=(batch_size,num_batch), dpi=200)
+    fig.suptitle(path_fig)
+    for i, (im, lb) in enumerate(dataset):
+        
+        for batch in range(batch_size):
+            axs[i,batch].axis("off")
+            axs[i,batch].imshow(im[0])
+        
+    plt.savefig(path_fig)
 
 
 def _dtype_to_tensor_spec(v):

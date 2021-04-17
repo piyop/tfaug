@@ -2,7 +2,7 @@
 """
 Created on Sat Jul  4 11:42:29 2020
 
-@author: 005869
+@author: okuda
 """
 
 import os, sys, math
@@ -16,164 +16,78 @@ import unittest
 
 import tensorflow as tf
 import tensorflow_addons as tfa
-from tensorflow.data.experimental import AUTOTUNE
 
-from tfaug import augment_img
+from tfaug import augment_img, dataset_creator, tfrecord_from_path_label
 import test_tfaug_tool as tool
 
 DATADIR = r'testdata\tfaug'+os.sep
 
 
+
 class test_tfaug(unittest.TestCase):
     
-    def aug_from_filepath(self):
+    def test_dataset_from_path(self):
         
-        batch_size = 2
-        filepaths = [DATADIR+'Lenna.png'] * 10
+        #data augmentation configurations:
+        DATAGEN_CONF = {'standardize':True,
+                        'resize':None,
+                        'random_rotation':5,
+                        'random_flip_left_right':True,
+                        'random_flip_up_down':False, 
+                        'random_shift':[.1,.1],
+                        'random_zoom':[0.2,0.2],
+                        'random_shear':[5,5],
+                        'random_brightness':0.2,
+                        'random_hue':0.01,
+                        'random_contrast':[0.6,1.4],
+                        'random_crop':None,#what to set random_crop
+                        'random_noise':100,
+                        'random_saturation':[0.5, 2]}
+
+        BATCH_SIZE = 2
+        flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
+        labels = [0] * 10 * BATCH_SIZE
         
-        # define tf.data.Dataset
-        ds = tf.data.Dataset.from_tensor_slices(tf.range(10)).repeat().batch(batch_size)
+        ds = dataset_creator(BATCH_SIZE*10, BATCH_SIZE, **DATAGEN_CONF, training=True).\
+                    dataset_from_path(flist, labels)
+                    
+        tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10, DATADIR+'test_ds_creator.png')
         
-        # construct preprocessing function
-        dtype = tf.int32
-        class tf_img_preproc():            
-            def __init__(self, filepaths):
-                self.filepaths = filepaths            
-            
-            def preproc(self, image_nos):
-                
-                return tf.convert_to_tensor(tool.read_imgs([self.filepaths[no] 
-                                                       for no 
-                                                       in image_nos]),
-                                            dtype=dtype)
-                        
-        preproc_obj = tf_img_preproc(filepaths)        
-        func = lambda x:tf.py_function(preproc_obj.preproc, [x], dtype)
         
-        # define augmentation
-        aug_fun=augment_img(standardize=False,random_rotation=90,training=True)
-        # map augmentation
-        ds_aug = ds.map(func).map(aug_fun, num_parallel_calls=AUTOTUNE)
-            
-        # check augmented image
-        fig, axs=plt.subplots(batch_size, 10, figsize=(10, batch_size), dpi=300)
-        for i, imgs in enumerate(iter(ds_aug.take(10))):            
-            axs[0,i].axis("off")
-            axs[0,i].imshow(imgs[0])
-            axs[1,i].axis("off")
-            axs[1,i].imshow(imgs[1])
-            
-        plt.savefig(DATADIR+'aug_from_filepath.png')
-            
-            
-    def aug_from_tfrecord(self):
+    def test_dataset_from_tfrecord(self):
         
-        batch_size = 2
+        #data augmentation configurations:
+        DATAGEN_CONF = {'standardize':True,
+                        'resize':None,
+                        'random_rotation':5,
+                        'random_flip_left_right':True,
+                        'random_flip_up_down':False, 
+                        'random_shift':[.1,.1],
+                        'random_zoom':[0.2,0.2],
+                        'random_shear':[5,5],
+                        'random_brightness':0.2,
+                        'random_hue':0.01,
+                        'random_contrast':[0.6,1.4],
+                        'random_crop':None,#what to set random_crop
+                        'random_noise':100,
+                        'random_saturation':[0.5, 2]}
+
+        BATCH_SIZE = 2
+        flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
+        labels = [0] * 10 * BATCH_SIZE
         
-        #test file
-        filepaths = [DATADIR+'Lenna.png'] * 10
+        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+        tfrecord_from_path_label(flist, 
+                                labels, 
+                                path_tfrecord)        
         
-        #function for generate tfExample      
-        def image_example(iimg, imsk):                    
-            feature = {'image': tool._bytes_feature(tool.np_to_pngstr(iimg)),
-                       'msk': tool._bytes_feature(tool.np_to_pngstr(imsk))}            
-            return tf.train.Example(features=tf.train.Features(feature=feature))
+        # path_tfrecord = r'\\pc207148\H\data_for_fv\H27～R1\reshaped\tfrecords\train_2_4.tfrecord'
         
-        path_tfrecord = DATADIR+r'sample.tfrecords'
-        #save tfrecord
-        with tf.io.TFRecordWriter(path_tfrecord) as writer:
-            for filepath in filepaths:                      
-                img = np.array(Image.open(filepath).convert('RGB') )     
-                #use same image as msk                
-                writer.write(image_example(img, img).SerializeToString())
-    
-        # construct preprocessing function
-        dtype = tf.uint8
-               
-        def preproc(tfexamples):                
-            return (tf.map_fn(tf.image.decode_png,tfexamples['image'], dtype=dtype),
-                    tf.map_fn(tf.image.decode_png,tfexamples['msk'], dtype=dtype))
-                                   
-        # define augmentation
-        aug_fun=augment_img(standardize=False,random_zoom=[0.2,0.8],training=True)
+        ds = dataset_creator(BATCH_SIZE*10, BATCH_SIZE, **DATAGEN_CONF, training=True).\
+                    dataset_from_tfrecords([path_tfrecord])
+                    
         
-        #define dataset
-        ds_aug = (tf.data.TFRecordDataset([path_tfrecord]).repeat().batch(batch_size)
-                      .apply(tf.data.experimental.parse_example_dataset(tool.tfexample_format))
-                      .map(preproc,num_parallel_calls=AUTOTUNE)
-                      .map(aug_fun,num_parallel_calls=AUTOTUNE))
-        
-        # check augmented image
-        fig, axs=plt.subplots(batch_size*2, 10, figsize=(10, batch_size*2), dpi=300)
-        for i, (imgs, msks) in enumerate(iter(ds_aug.take(10))):       
-            for row in range(batch_size):
-                axs[row*2,i].axis("off")
-                axs[row*2,i].imshow(imgs[row])
-                axs[row*2+1,i].axis("off")
-                axs[row*2+1,i].imshow(msks[row])
-            
-        plt.savefig(DATADIR+'aug_from_tfrecord.png')
-        
-        # to learn a model
-        # model.fit(ds_aug)
-        
-    
-    def aug_multi_input_and_pyfunc(self):
-        
-        batch_size = 1
-        filepaths = [DATADIR+'Lenna.png'] * 10
-        
-        # define tf.data.Dataset
-        ds = tf.data.Dataset.from_tensor_slices(tf.range(10)).repeat().batch(batch_size)
-        
-        # define augmentation
-        aug_fun=augment_img(standardize=False,random_rotation=90,training=True)
-        
-        # construct preprocessing function
-        dtype = tf.int32
-        # class tf_img_preproc():            
-        #     def __init__(self, filepaths1, filepaths2, aug_func):
-        #         self.filepaths1 = filepaths1           
-        #         self.filepaths2 = filepaths2            
-        #         self.aug_func = aug_func
-            
-        def tf_img_preproc(filepaths1, filepaths2, aug_func):
-            def preproc(self, image_nos):
-                
-                #augment only image here
-                return (aug_func(tf.convert_to_tensor(tool.read_imgs([filepaths1[no] 
-                                                       for no 
-                                                       in image_nos]),
-                                            dtype=dtype)),
-                        tf.convert_to_tensor(tool.read_imgs([filepaths2[no] 
-                                                                   for no 
-                                                                   in image_nos]),
-                                            dtype=dtype))
-            return preproc
-            
-        #pass aug_fun to 3rd arg
-        func = tf_img_preproc(filepaths, filepaths.copy(), aug_fun)    
-        #py_function for multiple output
-        func = lambda x:tool.new_py_function(func, [x], {'image1':dtype,'image2':dtype})
-        
-        # map preprocess and augmentation
-        ds_aug = ds.map(func, num_parallel_calls=AUTOTUNE)
-            
-        # check augmented image
-        fig, axs=plt.subplots(batch_size*2, 10, figsize=(10, batch_size*2), dpi=300)
-        for i, in_dict in enumerate(iter(ds_aug.take(10))):
-            for row in range(batch_size):
-                axs[row*2,i].axis("off")
-                axs[row*2,i].imshow(in_dict['image1'][row])
-                axs[row*2+1,i].axis("off")
-                axs[row*2+1,i].imshow(in_dict['image2'][row])
-            
-        plt.savefig(DATADIR+'aug_multi_input_and_pyfunc.png')
-            
-        
-        # to learn a model
-        # model.fit(ds_aug)
-        
+        tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10, DATADIR+'test_ds_from_tfrecord.png')
         
     
     def test_tfdata_vertual(self):
@@ -199,13 +113,13 @@ class test_tfaug(unittest.TestCase):
         image = image.astype(np.float32)
         
         def py_function(x):
-            tf.print('py_fuction',output_stream=sys.stderr)
-            tf.print(x.shape,output_stream=sys.stderr)
+            # tf.print('py_fuction',output_stream=sys.stderr)
+            # tf.print(x.shape,output_stream=sys.stderr)
             return x
         
         def aug_fun(x):
-            tf.print('aug_fun',output_stream=sys.stderr)
-            tf.print(x.shape,output_stream=sys.stderr)
+            # tf.print('aug_fun',output_stream=sys.stderr)
+            # tf.print(x.shape,output_stream=sys.stderr)
             return x
         
         func = lambda x:tf.py_function(py_function, [x], tf.float32)
@@ -234,21 +148,24 @@ class test_tfaug(unittest.TestCase):
         None.
     
         """
-        params = namedtuple('params', '''
-                                  standardize,
-                                  random_rotation, 
-                                  random_flip_left_right,
-                                  random_flip_up_down, 
-                                  random_shift, 
-                                  random_zoom,
-                                  random_shear,
-                                  random_brightness,
-                                  random_saturation,
-                                  random_hue,
-                                  random_contrast,
-                                  random_crop,
-                                  interpolation
-                                  training''')
+        fields = ['standardize',
+                    'resize',
+                    'random_rotation', 
+                    'random_flip_left_right',
+                    'random_flip_up_down', 
+                    'random_shift', 
+                    'random_zoom',
+                    'random_shear',
+                    'random_brightness',
+                    'random_saturation',
+                    'random_hue',
+                    'random_contrast',
+                    'random_crop',
+                    'random_noise',
+                    'interpolation',
+                    'training']
+        params = namedtuple('params', ','.join(fields),
+                                  defaults=(None,)*len(fields))
     
                 
         #image and lbl which you want to test
@@ -269,96 +186,94 @@ class test_tfaug(unittest.TestCase):
         label=np.tile(label, (BATCH_SIZE,1,1,1))
         
         cases = [
+                
                 params(#test y_shift
-                standardize=True,           
+                standardize=True,    
                 random_rotation=0, 
                 random_flip_left_right=True,
                 random_flip_up_down=False, 
                 random_shift=[256,0], 
-                random_zoom=None,
-                random_shear=None,
                 random_brightness=False,
-                random_saturation=None,
-                random_hue=None,
-                random_contrast=None,
-                random_crop = None,
                 interpolation = 'nearest',
                 training=True),
                 
                 params(#test x_shift and rotation
-                standardize=True,                
                 random_rotation=45, 
                 random_flip_left_right=False,
                 random_flip_up_down=True, 
                 random_shift=(0,256), 
-                random_zoom=None,
-                random_shear=None,
                 random_brightness=False,
-                random_saturation=(5, 10),
-                random_hue=None,
-                random_contrast=None,
-                random_crop = None,
+                random_saturation=(0.5, 2),
                 interpolation = 'nearest',
                 training=True),
                 
                 params(#test crop and zoom
-                standardize=True,
+                standardize=True,  
                 random_rotation=45, 
                 random_flip_left_right=False,
                 random_flip_up_down=False, 
                 random_shift=None, 
                 random_zoom=(0.8, 0.1),
-                random_shear=None,
-                random_brightness=None,
-                random_saturation=None,
-                random_hue=None,
-                random_contrast=None,
                 random_crop = (256, 512),
                 interpolation = 'bilinear',
                 training=True),
                 
                 params(#test shear and color
-                standardize=True,
-                random_rotation=None, 
+                standardize=True,  
                 random_flip_left_right=False,
                 random_flip_up_down=False, 
-                random_shift=None, 
-                random_zoom=None,
                 random_shear=(10,10),
                 random_brightness=0.5,
-                random_saturation=[5,10],
-                random_hue=0.3,
+                random_saturation=[0.5,2],
+                random_hue=0.01,
                 random_contrast=[.1,.5],
-                random_crop = None,
                 interpolation = 'bilinear',
                 training=True),
                 
                 params(#test train = False
-                standardize=True,
+                standardize=True,  
                 random_rotation=45, 
                 random_flip_left_right=True,
                 random_flip_up_down=True, 
-                random_shift=None, 
-                random_zoom=(0.8, 0.1),
-                random_shear=(50,50),
                 random_brightness=0.5,
-                random_saturation=[5,10],
-                random_hue=0.3,
                 random_contrast=[.1,.5],
                 random_crop = (256, 256),
                 interpolation = 'nearest',
                 training=False),
+                
+                params(#test resize
+                standardize=True,  
+                resize=(300,400),
+                random_rotation=45, 
+                random_zoom=(0.8, 0.1),
+                random_contrast=[.1,.5],
+                interpolation = 'nearest',
+                training=True),
+                
+                params(#test random_noise
+                standardize=True,  
+                resize=(300,400),
+                random_brightness=0.5,
+                random_hue=0.01,
+                random_contrast=[.1,.5],
+                random_noise = 100,
+                interpolation = 'nearest',
+                training=True),                
+                
                  ]
         
         
         for no, case in enumerate(cases):
             with self.subTest(case=case):
                 
-                func=augment_img(*case)
+                func=augment_img(**case._asdict())
                 
                 img, lbl=func(image, label)
                 
-                if case.random_crop:
+                if case.resize and not case.random_crop:                    
+                    assert img.shape == [BATCH_SIZE] + list(case.resize) + [3]
+                    assert lbl.shape == [BATCH_SIZE] + list(case.resize) + [3]                    
+                elif case.random_crop:
                     assert img.shape == [BATCH_SIZE] + list(case.random_crop) + [3]
                     assert lbl.shape == [BATCH_SIZE] + list(case.random_crop) + [3]
                 else:
@@ -372,15 +287,8 @@ class test_tfaug(unittest.TestCase):
                 img=self.adjust_img_range(img.numpy())
                 lbl=self.adjust_img_range(lbl.numpy())    
                 
-                fig, axs=plt.subplots(BATCH_SIZE,2, figsize=(3,BATCH_SIZE), dpi=300)
-                for i, (im, lb) in enumerate(zip(img, lbl)):
-                    axs[i,0].axis("off")
-                    axs[i,0].imshow(im.squeeze())
-                    
-                    axs[i,1].axis("off")
-                    axs[i,1].imshow(lb.squeeze())
-                    i += 1
-                plt.savefig(DATADIR+'test_augmentation_caseno'+str(no)+'.png')
+                tool.plot_dsresult(zip(zip(img, lbl),(None,)*len(img)), 2, BATCH_SIZE, DATADIR+'test_augmentation_caseno'+str(no)+'.png')
+                
         
         
     def test_valid(self):
@@ -604,4 +512,4 @@ if __name__ == '__main__':
     pass
     unittest.main()
     # obj = test_tfaug()
-    # obj.test_augmentation()
+    # obj.test_dataset_from_tfrecord()
