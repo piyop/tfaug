@@ -80,9 +80,7 @@ class test_tfaug(unittest.TestCase):
         tfrecord_from_path_label(flist, 
                                 labels, 
                                 path_tfrecord)        
-        
-        # path_tfrecord = r'\\pc207148\H\data_for_fv\H27～R1\reshaped\tfrecords\train_2_4.tfrecord'
-        
+               
         ds = dataset_creator(BATCH_SIZE*10, BATCH_SIZE, **DATAGEN_CONF, training=True).\
                     dataset_from_tfrecords([path_tfrecord])
                     
