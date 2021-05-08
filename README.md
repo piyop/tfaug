@@ -71,7 +71,7 @@ TfrecordConverter().tfrecord_from_ary_label(
  ```
 
 Create and apply augmentation to training and validation Tfrecords by DatasetCreator.
-For classification problem, use label_type = 'class' for constractor of the DatasetCreator.
+For the classification problem, use label_type = 'class' for DatasetCreator constractor.
 Set image augmentation params to DatasetCreator constractor.
 ```Python
 batch_size, shuffle_buffer = 25, 25
@@ -135,7 +135,7 @@ model.evaluate(ds_valid,
 ```
 
 #### Segmentation Problem
-Download ADE20k dataset and convert to tfrecord
+Download ADE20k dataset and convert to the tfrecord
 Below examples are part of learn_mnist() in sample_tfaug.py
 
 First, we set input image size and batch size for model
