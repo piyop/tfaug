@@ -1,5 +1,5 @@
 # tfaug package
-Tensorflow image augmentation support classes for tf.data
+Tensorflow create tf.data.Dataset and image augmentation support classes.
 
 This package include below 3 classes:
  * DatasetCreator - creator of tf.data.Dataset from tfrecords or image paths
@@ -12,6 +12,7 @@ This package include below 3 classes:
  * use only tensorflow operators and basic statments and functions. Because any other operations or functions (e.g. numpy functions) cause limitation on multiprocess augmentation while using @tf.function to get a better peformance [as mentined here](https://www.tensorflow.org/guide/function).
 
 ## Dependancies
+ * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
 ### for test srcipt
