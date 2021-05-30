@@ -24,10 +24,39 @@ class DatasetCreator():
                  shuffle_buffer: int,
                  batch_size: int,
                  label_type: str,
+                 repeat : bool = False,
+                 preproc: Callable = None,
                  **kwargs: dict):
+        """
+        
+
+        Parameters
+        ----------
+        shuffle_buffer : int
+            shuffle buffer size. if you don't need shuffle, use shuffle_buffer=None
+        batch_size : int
+            batch size.
+        label_type : str
+            'segmentation' or 'class'.
+        repeat : bool, optional
+            repeat every datasets or use once.
+        preproc : Callable, optional
+            preprocess callback function before augment image. The default is None
+        **kwargs : dict
+            parameters for AugmentImg().
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        
         self._shuffle_buffer = shuffle_buffer
         self._batch_size = batch_size
         self._datagen_confs = kwargs
+        self._repeat = repeat
+        self._preproc = preproc
 
         self._labeltype = label_type
         if self._labeltype == 'class':
@@ -60,47 +89,111 @@ class DatasetCreator():
             zipped = tf.data.Dataset.zip((ds_img, ds_labels))
         else:
             zipped = ds_img
-
         if self._shuffle_buffer:
             zipped = zipped.shuffle(self._shuffle_buffer)
+        if self._repeat:
+            zipped = zipped.repeat()
 
         batch = zipped.batch(self._batch_size)
 
+        if self._preproc:
+            batch = batch.map(self._preproc)
+
         return batch.map(aug, num_parallel_calls=AUTOTUNE).prefetch(AUTOTUNE)
 
-    def dataset_from_tfrecords(self, path_tfrecords):
+    def dataset_from_tfrecords(self, path_tfrecords, ratio_samples=None):
+        """
+        
 
-        def decoder(tfexamples):
-            return [tf.map_fn(tf.image.decode_png, tfexamples[key], dtype=tf.uint8)
-                    if value.dtype == tf.string else tfexamples[key]
-                    for key, value in self._tfexample_format.items()]
+        Parameters
+        ----------
+        path_tfrecords : str
+            filepaths for tfrecords.
+        ratio_samples : float32 or float64, optional
+            if some ratio = 0 and not use repat=True, cause hung up
+
+        Returns
+        -------
+        ds_aug : TYPE
+            DESCRIPTION.
+        num_img : TYPE
+            DESCRIPTION.
+
+        """
 
         # define augmentation
         aug_fun = AugmentImg(**self._datagen_confs, clslabel=self._clslabel)
 
+        if ratio_samples is None:
+            ds, num_img = self._get_ds_tfrecord(self._shuffle_buffer, path_tfrecords)            
+        else:
+            assert len(
+                path_tfrecords[0][0]) > 1, "if use ratio_samples, you must use 2d list"
+            dss = []
+            for path_tfrecord in path_tfrecords:
+                dss.append(self._get_ds_tfrecord(self._shuffle_buffer, path_tfrecord))
+                
+            ds = tf.data.experimental.sample_from_datasets(
+                list(zip(*dss))[0], ratio_samples)    
+            num_img = sum(list(zip(*dss))[1])            
+        
+        ds_aug = (ds.batch(self._batch_size)
+                  .apply(tf.data.experimental.parse_example_dataset(self._tfexample_format))
+                  .map(self._decoder, num_parallel_calls=AUTOTUNE))
+
+        if self._preproc:
+            ds_aug = ds_aug.map(self._preproc)
+
+        ds_aug = (ds_aug.map(aug_fun, num_parallel_calls=AUTOTUNE)
+                  .prefetch(AUTOTUNE))
+
+        return ds_aug, num_img
+
+    def _get_ds_tfrecord(self, shuffle_buffer, path_tfrecords):
+
         # define dataset
         ds = tf.data.TFRecordDataset(
             path_tfrecords, num_parallel_reads=len(path_tfrecords))
-        if self._shuffle_buffer:
-            ds = ds.shuffle(self._shuffle_buffer)
-
-        ds_aug = (ds.batch(self._batch_size)
-                  .apply(tf.data.experimental.parse_example_dataset(self._tfexample_format))
-                  .map(decoder, num_parallel_calls=AUTOTUNE)
-                  .map(aug_fun, num_parallel_calls=AUTOTUNE)
-                  .prefetch(AUTOTUNE))
-
-        # get dataset counts
+        if self._repeat:
+            ds = ds.repeat()
+            
+        if shuffle_buffer:
+            ds = ds.shuffle(shuffle_buffer)
+            
         num_img = 0
         for path_tfrecord in path_tfrecords:
             with open(os.path.splitext(path_tfrecord)[0]+'.json') as fp:
                 fileds = json.load(fp)
                 num_img += fileds['imgcnt']
 
-        return ds_aug, num_img
+        return ds, num_img
+    
+
+    def _decoder(self, tfexamples):
+        return [tf.map_fn(tf.image.decode_png, tfexamples[key], dtype=tf.uint8)
+                if value.dtype == tf.string else tfexamples[key]
+                for key, value in self._tfexample_format.items()]
 
 
 class TfrecordConverter():
+
+    def __init__(self, dry_run=False):
+        """
+        
+
+        Parameters
+        ----------
+        dry_run : bool, optional
+            If True, save and conversion will ignored. only save .json files 
+            which content is count of files and filename is same as tfrecord file.
+            The default is False.
+
+        Returns
+        -------
+        None.
+
+        """
+        self._dry_run = dry_run
 
     def np_to_pngstr(self, npary):
         with io.BytesIO() as output:
@@ -141,19 +234,20 @@ class TfrecordConverter():
                        'label': label_feature(ilabel)}
             return tf.train.Example(features=tf.train.Features(feature=feature))
 
-        # save tfrecord
-        with tf.io.TFRecordWriter(path_out) as writer:
-            for (img, label) in tqdm(zip(imgs, labels),
-                                     total=len(imgs),
-                                     leave=False):
-                img = reader_func(img)
-                if seg_label:
-                    ext = os.path.splitext(label)[1]
-                    assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
-                        "file extention is imcompatible:"+label
-                    label = reader_func(label)
-                # use same image as msk
-                writer.write(image_example(img, label).SerializeToString())
+        if not self._dry_run:
+            # save tfrecord
+            with tf.io.TFRecordWriter(path_out) as writer:
+                for (img, label) in tqdm(zip(imgs, labels),
+                                         total=len(imgs),
+                                         leave=False):
+                    img = reader_func(img)
+                    if seg_label:
+                        ext = os.path.splitext(label)[1]
+                        assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
+                            "file extention is imcompatible:"+label
+                        label = reader_func(label)
+                    # use same image as msk
+                    writer.write(image_example(img, label).SerializeToString())
 
         # save datalen to json
         with open(os.path.splitext(path_out)[0]+'.json', 'w') as file:
@@ -269,6 +363,8 @@ class AugmentImg():
                  inshape: Tuple[int, int, int, int] = None,
                  clslabel: bool = False,
                  dtype: type = None,
+                 input_shape=None,
+                 num_transforms=10000,
                  training: bool = False) \
             -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]:
         """
@@ -334,6 +430,12 @@ class AugmentImg():
             If false, labels are presumed to be the same dimension as the image
         dtype : tf.Dtype, The default is None
             tfaug cast input images to this dtype after geometric transformation.
+        input_shape : Tuple(int, int), The default is None
+            input image (y,x) dimensions. 
+            if you use this option, cpu augmentation load is decreased.
+        num_transforms : int, The default is 10000
+            number of transformation matrixes generated in advance. 
+            this must specify input_shape.
         training : bool, optional
             If false, this class don't augment image except standardize.
             The default is False.
@@ -372,7 +474,19 @@ class AugmentImg():
         self._interpolation = interpolation
         self._clslabel = clslabel
         self._dtype = dtype
+        self._input_shape = input_shape
+        self._num_transforms = num_transforms
         self._training = training
+
+        if self._input_shape and self._num_transforms:
+            print('generating transform matrix...', flush=True)
+            rep_cnt = math.ceil(self._num_transforms/self._input_shape[0])
+            self._Ms = []
+            for i in tqdm(range(rep_cnt)):
+                self._Ms.append(self._get_transform(self._input_shape))
+            self._Ms = tf.constant(
+                np.array(self._Ms).reshape(
+                    rep_cnt*self._input_shape[0], 8)[:self._num_transforms])
 
     @tf.function
     def __call__(self, image: tf.Tensor,
@@ -480,8 +594,8 @@ class AugmentImg():
         --------------------
         image : 4d tensor
             input image
-        label : 4d tensor, optional,
-            image fort ture label
+        label : 4d tensor or 1d tensor, optional,
+            true segmentation label or classification label
         train : bool, optional,
             training or not
         """
@@ -496,7 +610,7 @@ class AugmentImg():
 
         if isinstance(self._resize, tf.Tensor):
             image = tf.image.resize(image, self._resize, self._interpolation)
-            
+
         in_size = tf.shape(image)[1:3]
 
         if train:
@@ -512,7 +626,11 @@ class AugmentImg():
                 isinstance(self._random_shift, tf.Tensor) or
                     isinstance(self._random_shear, tf.Tensor)):
 
-                M = self._get_transform(tf.shape(image))
+                if hasattr(self, "_Ms"):
+                    M = tf.gather(self._Ms, tf.cast(tf.random.uniform(
+                        [batch_size])*self._num_transforms, tf.int32), axis=0)
+                else:
+                    M = self._get_transform(tf.shape(image))
 
                 # geometric transform
                 image = tfa.image.transform(

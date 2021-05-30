@@ -4,17 +4,20 @@
 @author: t.okuda
 """
 
-import test_tfaug_tool as tool
-from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
-import tensorflow_addons as tfa
-import tensorflow as tf
 import unittest
+import os
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from collections import namedtuple
-import os
-import math
+
+import tensorflow_addons as tfa
+import tensorflow as tf
+
+
+import test_tfaug_tool as tool
+from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
 
 DATADIR = r'testdata\tfaug'+os.sep
 
@@ -56,15 +59,16 @@ class TestTfaug(unittest.TestCase):
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
         labels = [0] * 10 * BATCH_SIZE
 
-        ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, **DATAGEN_CONF,
-                            labeltype='class', training=True).\
+        ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
+                            **DATAGEN_CONF,
+                            training=True).\
             dataset_from_path(flist, labels)
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_creator.png')
 
     def test_dataset_from_tfrecord(self):
-            
+
         random_crop_size = [100, 254]
         # data augmentation configurations:
         DATAGEN_CONF = {'standardize': True,
@@ -84,17 +88,17 @@ class TestTfaug(unittest.TestCase):
 
         BATCH_SIZE = 2
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
-        labels = [0] * 10 * BATCH_SIZE
+        labels = [0] * 10 * BATCH_SIZE 
 
         # test for classification
-        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+        path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
         TfrecordConverter().tfrecord_from_path_label(flist,
                                                      labels,
-                                                     path_tfrecord)
+                                                     path_tfrecord_0)
 
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, **
-                            DATAGEN_CONF, labeltype='class', training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
+                            **DATAGEN_CONF, training=True)
+        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord_0])
 
         rep_cnt = 0
         for img, label in iter(ds):
@@ -105,15 +109,42 @@ class TestTfaug(unittest.TestCase):
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
+
+
+        #test for ratio_samples
+        labels = [1] * 10 * BATCH_SIZE
+        path_tfrecord_1 = DATADIR+'ds_from_tfrecord_1.tfrecord'
+        TfrecordConverter().tfrecord_from_path_label(flist,
+                                                     labels,
+                                                     path_tfrecord_1)
         
+        dc = DatasetCreator(5, 10,
+                            label_type='class',
+                            repeat=False,
+                            **DATAGEN_CONF,  training=True)
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+                                            ratio_samples=np.array([0.1,1000],dtype=np.float32))
+        img, label = next(iter(ds.take(1)))
+        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+        assert all(label == 1), "sampled label is invalid"         
+
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+                                            ratio_samples=np.array([1,1],dtype=np.float32))
+        rep_cnt = 0
+        for img, label in iter(ds):
+            rep_cnt += 1
+        assert rep_cnt == 4, "repetition count is invalid"
+        assert any(label == 1) and any(label == 0), "sampled label is invalid"         
+
         # test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
         TfrecordConverter().tfrecord_from_path_label(flist,
                                                      flist,
                                                      path_tfrecord)
 
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, **
-                            DATAGEN_CONF, labeltype='segmentation', training=True)
+        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                            label_type='segmentation',
+                            **DATAGEN_CONF,  training=True)
         ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
 
         rep_cnt = 0
@@ -126,7 +157,10 @@ class TestTfaug(unittest.TestCase):
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
-
+        
+        
+        
+        
 
     def test_tfrecord_from_path(self):
 
@@ -141,7 +175,7 @@ class TestTfaug(unittest.TestCase):
                                                      path_tfrecord)
 
         # check segmentation label
-        dc = DatasetCreator(1, 1, labeltype='segmentation', training=True)
+        dc = DatasetCreator(1, 1, label_type='segmentation', training=True)
         ds, imgcnt = dc.dataset_from_tfrecords([path_tfrecord])
 
         for i, (img, label) in enumerate(ds):
@@ -152,14 +186,62 @@ class TestTfaug(unittest.TestCase):
                                                      clslabels,
                                                      path_tfrecord)
 
-        # check
-        dc = DatasetCreator(False, 1, labeltype='class', training=True)
+        # check class label
+        dc = DatasetCreator(False, 1, label_type='class', training=True)
         ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
 
         for i, (img, label) in enumerate(ds):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert (label.numpy() == clslabels[i]), 'label is changed'
 
+    def test_preproc(self):
+
+        random_crop_size = [100, 254]
+        # data augmentation configurations:
+        DATAGEN_CONF = {'standardize': True,
+                        'resize': None,
+                        'random_rotation': 5,
+                        'random_flip_left_right': True,
+                        'random_flip_up_down': False,
+                        'random_shift': [.1, .1],
+                        'random_zoom': [0.2, 0.2],
+                        'random_shear': [5, 5],
+                        'random_brightness': 0.2,
+                        'random_hue': 0.01,
+                        'random_contrast': [0.6, 1.4],
+                        'random_crop': random_crop_size,
+                        'random_noise': 100,
+                        'random_saturation': [0.5, 2]}
+
+        BATCH_SIZE = 2
+        with Image.open(DATADIR+'Lenna.png').convert('RGB') as img:
+            image = np.asarray(img)
+        image = np.tile(image, (10 * BATCH_SIZE, 1, 1, 1))
+        image = np.concatenate([image, np.zeros(image.shape[:3], dtype=np.uint8)[
+                               :, :, :, np.newaxis]], axis=3)
+
+        labels = [0] * 10 * BATCH_SIZE
+
+        # test for classification
+        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+        TfrecordConverter().tfrecord_from_ary_label(image,
+                                                    labels,
+                                                    path_tfrecord)
+
+        def preproc(img, lbl): return (img[:, :, :, :3], lbl)
+
+        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                            label_type='class', preproc=preproc,
+                            **DATAGEN_CONF, training=True)
+        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+
+        rep_cnt = 0
+        for img, label in iter(ds):
+            rep_cnt += 1
+
+        assert rep_cnt == 10, "repetition count is invalid"
+        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+        assert img.shape[3] == 3, "data shape is invalid"
 
     def test_tfdata_vertual(self):
 
@@ -236,9 +318,13 @@ class TestTfaug(unittest.TestCase):
                   'random_noise',
                   'interpolation',
                   'dtype',
+                  'input_shape',
+                  'num_transforms',
                   'training']
-        params = namedtuple('params', ','.join(fields),
-                            defaults=(None,)*len(fields))
+        params = namedtuple('params', ','.join(fields)
+                            # ,defaults=(None,)*len(fields)
+                            )
+        params.__new__.__defaults__ = (None,)*len(fields)
 
         # image and lbl which you want to test
         testimg = DATADIR+'Lenna.png'
@@ -258,6 +344,15 @@ class TestTfaug(unittest.TestCase):
         label = np.tile(label, (BATCH_SIZE, 1, 1, 1))
 
         cases = [
+            params(  # test num_transforms
+                standardize=True,
+                resize=(300, 400),
+                random_brightness=0.5,
+                random_rotation=20,
+                interpolation='nearest',
+                input_shape=[BATCH_SIZE,512,512,3],
+                num_transforms=50,
+                training=True),
             params(  # test dtype
                 standardize=True,
                 resize=(300, 400),
@@ -300,7 +395,7 @@ class TestTfaug(unittest.TestCase):
                 standardize=True,
                 random_flip_left_right=False,
                 random_flip_up_down=False,
-                random_zoom=[0.1,0.1],
+                random_zoom=[0.1, 0.1],
                 random_shear=(10, 10),
                 random_brightness=0.5,
                 random_saturation=[0.5, 2],
@@ -589,5 +684,5 @@ class TestTfaug(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    # unittest.main()
-    # TestTfaug().test_augmentation()
+    unittest.main()
+    # TestTfaug().test_dataset_from_tfrecord()
