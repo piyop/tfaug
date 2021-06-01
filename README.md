@@ -37,7 +37,7 @@ This package include below 3 classes:
  * random_noise
  
 ## Install
-python -m pip install tfaug
+python -m pip install git+https://github.com/piyop/tfaug
 
 ## Samples
 
