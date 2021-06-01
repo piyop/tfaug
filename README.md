@@ -15,7 +15,7 @@ This package include below 3 classes:
  * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
-### for test srcipt
+### For test script
  * pillow
  * numpy
  * matplotlib
