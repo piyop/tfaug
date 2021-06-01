@@ -41,7 +41,7 @@ python -m pip install git+https://github.com/piyop/tfaug
 
 ## Samples
 
-Some Classification and Segmentation Usage is shown here. 
+Simple Classification and Segmentation Usage is shown below. 
 Whole ruunable codes is in sample_tfaug.py
 
 #### Classification Problem
