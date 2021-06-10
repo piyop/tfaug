@@ -115,6 +115,7 @@ def learn_ade20k():
                                           random_shear=[10, 10],
                                           random_crop=input_size,
                                           dtype=tf.float16,
+                                          input_shape=[batch_size]+input_size+[3],
                                           training=True)
                            .dataset_from_tfrecords(tfrecords_train))
 
@@ -130,8 +131,6 @@ def learn_ade20k():
                                           training=False)
                            .dataset_from_tfrecords(tfrecords_valid))
 
-    # add repeat operation
-    ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
 
     # define model
     model = def_unet(tuple(input_size+[3]), 151)  # 150class + padding area
