@@ -1,36 +1,41 @@
+# Table of Contents
+
 * [tfaug package](#tfaug-package)
-   * [Features](#features)
-   * [Dependancies](#dependancies)
-      * [For test script](#for-test-script)
-   * [Supported Augmentations](#supported-augmentations)
-   * [Install](#install)
-   * [Samples](#samples)
-         * [Classification Problem](#classification-problem)
-         * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
-         * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
-         * [Define and Leanrn Model Using Defined Dataset](#define-and-leanrn-model-using-defined-dataset)
-         * [Segmentation Problem](#segmentation-problem)
-         * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
-         * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
-         * [Define and Leanrn Model Using Defined Dataset](#define-and-leanrn-model-using-defined-dataset-1)
+* [Features](#features)
+* [Dependancies](#dependancies)
+   * [For test script](#for-test-script)
+* [Supported Augmentations](#supported-augmentations)
+* [Install](#install)
+* [Samples](#samples)
+   * [Classification Problem](#classification-problem)
+      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
+      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
+      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets)
+   * [Segmentation Problem](#segmentation-problem)
+      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
+      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
+      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets-1)
       * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
-      * [Use AugmentImg Directly](#use-augmentimg-directly)
-         * [1. Initialize](#1-initialize)
-         * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
+   * [Use AugmentImg Directly](#use-augmentimg-directly)
+      * [1. Initialize](#1-initialize)
+      * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
 
 
 # tfaug package
-Tensorflow create tf.data.Dataset and image augmentation support classes.
+Tensorflow > 2 recommends to be feeded data by tf.data.Dataset.
+This package supports creation of tf.data.Dataset and image augmentation.
 
-This package include below 3 classes:
+This package includes below 3 classes:
  * DatasetCreator - creator of tf.data.Dataset from tfrecords or image paths
- * TfrecordConverter - pack images and labels to tfrecord format
- * AugmentImg - image augmentation class which is used inside DatasetCreator implicitly.
+ * TfrecordConverter - pack images and labels to tfrecord format (recommended format for better peformance)
+ * AugmentImg - image augmentation class. This is used inside DatasetCreator implicitly or you can use it directly.
 
 # Features
- * augment input image and label image with same transformations at the same time.
- * augment on batch which is more efficient than augment each image.
- * use only tensorflow operators and basic statments and functions. Because any other operations or functions (e.g. numpy functions) cause limitation on multiprocess augmentation while using @tf.function to get a better peformance [as mentined here](https://www.tensorflow.org/guide/function).
+ * Augment input image and label image with same transformations at the same time.
+ * Reduce cpu load by generating all transformation matrix at first. (use `input_shape` parameter at `DatasetCreator()` or `AugmentImg()`)
+ * It could adjust sampling ratios from multiple tfrecord files. (use `ratio_samples` parameter at `DatasetCreator().dataset_from_tfrecords`) This is effective for class imbalance problems.
+ * Augment on batch. It is more efficient than augment each image.
+ * Use only tensorflow operators and builtin functions while augmentation. Because any other operations or functions (e.g. numpy functions) may be bottleneck of learning. [mentined here](https://www.tensorflow.org/guide/function).
 
 # Dependancies
  * Python >= 3.5
@@ -128,7 +133,7 @@ ds_train = ds_train.map(lambda x, y: (x/255, y))
 ds_train = ds_valid.map(lambda x, y: (x/255, y))
 ```
 
-### Define and Leanrn Model Using Defined Dataset
+### Define and Learn Model Using Defined Datasets
 Define Model
 ```Python
 model = tf.keras.models.Sequential([
@@ -238,7 +243,7 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
 
 ```
 
-### Define and Leanrn Model Using Defined Dataset
+### Define and Learn Model Using Defined Datasets
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
