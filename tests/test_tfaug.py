@@ -122,7 +122,8 @@ class TestTfaug(unittest.TestCase):
                             label_type='class',
                             repeat=False,
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
+                                             [path_tfrecord_1, path_tfrecord_1]],
                                             ratio_samples=np.array([0.1,1000],dtype=np.float32))
         img, label = next(iter(ds.take(1)))
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
