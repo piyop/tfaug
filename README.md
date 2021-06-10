@@ -1,26 +1,52 @@
+# Table of Contents
+
+* [tfaug package](#tfaug-package)
+* [Features](#features)
+* [Dependancies](#dependancies)
+   * [For test script](#for-test-script)
+* [Supported Augmentations](#supported-augmentations)
+* [Install](#install)
+* [Samples](#samples)
+   * [Classification Problem](#classification-problem)
+      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
+      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
+      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets)
+   * [Segmentation Problem](#segmentation-problem)
+      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
+      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
+      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets-1)
+      * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
+   * [Use AugmentImg Directly](#use-augmentimg-directly)
+      * [1. Initialize](#1-initialize)
+      * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
+
+
 # tfaug package
-Tensorflow create tf.data.Dataset and image augmentation support classes.
+Tensorflow > 2 recommends to be feeded data by tf.data.Dataset.
+This package supports creation of tf.data.Dataset and image augmentation.
 
-This package include below 3 classes:
+This package includes below 3 classes:
  * DatasetCreator - creator of tf.data.Dataset from tfrecords or image paths
- * TfrecordConverter - pack images and labels to tfrecord format
- * AugmentImg - image augmentation class which is used inside DatasetCreator implicitly.
+ * TfrecordConverter - pack images and labels to tfrecord format (recommended format for better peformance)
+ * AugmentImg - image augmentation class. This is used inside DatasetCreator implicitly or you can use it directly.
 
-## Features
- * augment input image and label image with same transformations at the same time.
- * augment on batch which is more efficient than augment each image.
- * use only tensorflow operators and basic statments and functions. Because any other operations or functions (e.g. numpy functions) cause limitation on multiprocess augmentation while using @tf.function to get a better peformance [as mentined here](https://www.tensorflow.org/guide/function).
+# Features
+ * Augment input image and label image with same transformations at the same time.
+ * Reduce cpu load by generating all transformation matrix at first. (use `input_shape` parameter at `DatasetCreator()` or `AugmentImg()`)
+ * It could adjust sampling ratios from multiple tfrecord files. (use `ratio_samples` parameter at `DatasetCreator().dataset_from_tfrecords`) This is effective for class imbalance problems.
+ * Augment on batch. It is more efficient than augment each image.
+ * Use only tensorflow operators and builtin functions while augmentation. Because any other operations or functions (e.g. numpy functions) may be bottleneck of learning. [mentined here](https://www.tensorflow.org/guide/function).
 
-## Dependancies
+# Dependancies
  * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
-### For test script
+## For test script
  * pillow
  * numpy
  * matplotlib
 
-## Supported Augmentations:
+# Supported Augmentations
  * standardize
  * resize
  * random_rotation
@@ -35,16 +61,17 @@ This package include below 3 classes:
  * random_contrast
  * random_crop
  * random_noise
+   * add random gaussian pixcel noise
  
-## Install
+# Install
 python -m pip install git+https://github.com/piyop/tfaug
 
-## Samples
+# Samples
 
 Simple Classification and Segmentation Usage is shown below. 
 Whole ruunable codes is in sample_tfaug.py
 
-#### Classification Problem
+## Classification Problem
 Download, convert to tfrecord and learn MNIST dataset.
 Below examples are part of `learn_mnist()` in sample_tfaug.py
 
@@ -61,6 +88,7 @@ os.makedirs(DATADIR+'mnist', exist_ok=True)
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 ```
 
+### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 Convert training and validation(test) images and labels into Tfrecord format by TfrecordConverter.
 Therefore, Tensorflow could be load data from Tfrecord format with least overhead and parallel reading. 
 ```Python
@@ -71,6 +99,7 @@ TfrecordConverter().tfrecord_from_ary_label(
     x_test, y_test, DATADIR+'mnist/test.tfrecord')
  ```
 
+### Create Dataset by DatasetCreator()
 Create and apply augmentation to training and validation Tfrecords by DatasetCreator.
 For the classification problem, use `label_type = 'class'` for DatasetCreator constractor.
 Set image augmentation params to DatasetCreator constractor.
@@ -80,6 +109,7 @@ batch_size, shuffle_buffer = 25, 25
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
                                       label_type='class',
+                                      repeat=True,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=20,
                                       random_shear=[10, 10],
@@ -88,6 +118,7 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
                                       label_type='class',
+                                      repeat=True,
                                       training=False)
                        .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
@@ -102,6 +133,7 @@ ds_train = ds_train.map(lambda x, y: (x/255, y))
 ds_train = ds_valid.map(lambda x, y: (x/255, y))
 ```
 
+### Define and Learn Model Using Defined Datasets
 Define Model
 ```Python
 model = tf.keras.models.Sequential([
@@ -135,7 +167,7 @@ model.evaluate(ds_valid,
                verbose=2)
 ```
 
-#### Segmentation Problem
+## Segmentation Problem
 Download ADE20k dataset and convert to the tfrecord
 Below examples are part of `learn_mnist()` in sample_tfaug.py
 
@@ -151,6 +183,7 @@ Download and convert ADE20k dataset to tfrecord by defined function download_and
 download_and_convert_ADE20k(input_size)
 ```
 
+### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 In download_and_convertADE20k(), split original images to patch image by `TfrecordConverter.get_patch()`
 Though ADE20k images have not same image size, tensorflow model input should be exactly same size.
 ```Python
@@ -175,6 +208,7 @@ converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
                                    path_tfrecord)
  ```
 
+### Create Dataset by DatasetCreator()
 After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.
 For segmentation problem, use `label_type = 'segmentation'` to the constractor of the DatasetCreator.<br/>
 
@@ -185,6 +219,7 @@ tfrecords_train = glob(
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
                                       label_type='segmentation',
+                                      repeat=True,
                                       standardize=True,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=10,
@@ -199,22 +234,16 @@ tfrecords_valid = glob(
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
                                       label_type='segmentation',
+                                      repeat=True,
                                       standardize=True,
                                       random_crop=input_size,
                                       dtype=tf.float16,
                                       training=False)
                        .dataset_from_tfrecords(tfrecords_valid))
 
-# add repeat operation
-ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
 ```
 
-Add repeat() operation to learn multiple epochs.
-```Python
-# add repeat operation
-ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
-```
-
+### Define and Learn Model Using Defined Datasets
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
@@ -236,7 +265,7 @@ model.evaluate(ds_valid,
                verbose=2)
 ```
 
-### Adjust sampling ratios from tfrecord files
+### Adjust sampling ratios from multiple tfrecord files
 If number of images in each class are significantly imvalanced, you may want adjust sampling ratios from each class.
 `DatasetCreator.dataset_from_path` could accepts sampling ratios. <br/>
 In that case, you should use 2d nested list for argument of `DatasetCreator.dataset_from_path()` and assign argment `sampling_ratios`  for every 1d lists in 2d list.
@@ -248,15 +277,15 @@ dc = DatasetCreator(5, 10,
                     **DATAGEN_CONF,  training=True)
 ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
                                      [path_tfrecord_1, path_tfrecord_1]],
-                                    ratio_samples=np.array([0.1,1000],dtype=np.float32))
+                                    ratio_samples=np.array([1,10],dtype=np.float32))
 ```
 
 
 
-### Use AugmentImg Directly 
+## Use AugmentImg Directly 
 Above examples ware create tf.data.Dataset by DatasetCreator. If you need to control your dataflow in other way, you could use AugmentImage Directly
 
-#### 1. Initialize
+### 1. Initialize
 ```python  
 from tfaug import AugmentImg 
 #set your augment parameters below:
@@ -278,7 +307,7 @@ arg_fun = AugmentImg(standardize=False,
  
 ```
 
-#### 2. use in tf.data.map() after batch()
+### 2. use in tf.data.map() after batch()
 ```python 
 ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
                       tf.data.Dataset.from_tensor_slices(label))) \
