@@ -20,7 +20,7 @@ This package include below 3 classes:
  * numpy
  * matplotlib
 
-## Supported Augmentations:
+## Supported Augmentations
  * standardize
  * resize
  * random_rotation
@@ -35,6 +35,7 @@ This package include below 3 classes:
  * random_contrast
  * random_crop
  * random_noise
+   * add random gaussian pixcel noise
  
 ## Install
 python -m pip install git+https://github.com/piyop/tfaug
@@ -61,6 +62,7 @@ os.makedirs(DATADIR+'mnist', exist_ok=True)
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 ```
 
+#### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 Convert training and validation(test) images and labels into Tfrecord format by TfrecordConverter.
 Therefore, Tensorflow could be load data from Tfrecord format with least overhead and parallel reading. 
 ```Python
@@ -71,6 +73,7 @@ TfrecordConverter().tfrecord_from_ary_label(
     x_test, y_test, DATADIR+'mnist/test.tfrecord')
  ```
 
+#### Create Dataset by DatasetCreator()
 Create and apply augmentation to training and validation Tfrecords by DatasetCreator.
 For the classification problem, use `label_type = 'class'` for DatasetCreator constractor.
 Set image augmentation params to DatasetCreator constractor.
@@ -80,6 +83,7 @@ batch_size, shuffle_buffer = 25, 25
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
                                       label_type='class',
+                                      repeat=True,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=20,
                                       random_shear=[10, 10],
@@ -88,6 +92,7 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
                                       label_type='class',
+                                      repeat=True,
                                       training=False)
                        .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
@@ -102,6 +107,7 @@ ds_train = ds_train.map(lambda x, y: (x/255, y))
 ds_train = ds_valid.map(lambda x, y: (x/255, y))
 ```
 
+#### Define and Leanrn Model Using Defined Dataset
 Define Model
 ```Python
 model = tf.keras.models.Sequential([
@@ -151,6 +157,7 @@ Download and convert ADE20k dataset to tfrecord by defined function download_and
 download_and_convert_ADE20k(input_size)
 ```
 
+#### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 In download_and_convertADE20k(), split original images to patch image by `TfrecordConverter.get_patch()`
 Though ADE20k images have not same image size, tensorflow model input should be exactly same size.
 ```Python
@@ -175,6 +182,7 @@ converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
                                    path_tfrecord)
  ```
 
+#### Create Dataset by DatasetCreator()
 After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.
 For segmentation problem, use `label_type = 'segmentation'` to the constractor of the DatasetCreator.<br/>
 
@@ -185,6 +193,7 @@ tfrecords_train = glob(
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
                                       label_type='segmentation',
+                                      repeat=True,
                                       standardize=True,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=10,
@@ -199,22 +208,16 @@ tfrecords_valid = glob(
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
                                       label_type='segmentation',
+                                      repeat=True,
                                       standardize=True,
                                       random_crop=input_size,
                                       dtype=tf.float16,
                                       training=False)
                        .dataset_from_tfrecords(tfrecords_valid))
 
-# add repeat operation
-ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
 ```
 
-Add repeat() operation to learn multiple epochs.
-```Python
-# add repeat operation
-ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
-```
-
+#### Define and Leanrn Model Using Defined Dataset
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
@@ -236,7 +239,7 @@ model.evaluate(ds_valid,
                verbose=2)
 ```
 
-### Adjust sampling ratios from tfrecord files
+### Adjust sampling ratios from multiple tfrecord files
 If number of images in each class are significantly imvalanced, you may want adjust sampling ratios from each class.
 `DatasetCreator.dataset_from_path` could accepts sampling ratios. <br/>
 In that case, you should use 2d nested list for argument of `DatasetCreator.dataset_from_path()` and assign argment `sampling_ratios`  for every 1d lists in 2d list.
@@ -248,7 +251,7 @@ dc = DatasetCreator(5, 10,
                     **DATAGEN_CONF,  training=True)
 ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
                                      [path_tfrecord_1, path_tfrecord_1]],
-                                    ratio_samples=np.array([0.1,1000],dtype=np.float32))
+                                    ratio_samples=np.array([1,10],dtype=np.float32))
 ```
 
 
