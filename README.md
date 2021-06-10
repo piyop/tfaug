@@ -22,7 +22,7 @@
 
 
 # tfaug package
-Tensorflow > 2 recommends to be feeded data by tf.data.Dataset.
+Tensorflow >= 2 recommends to be feeded data by tf.data.Dataset.
 This package supports creation of tf.data.Dataset and image augmentation.
 
 This package includes below 3 classes:
@@ -211,6 +211,7 @@ converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
 ### Create Dataset by DatasetCreator()
 After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.
 For segmentation problem, use `label_type = 'segmentation'` to the constractor of the DatasetCreator.<br/>
+If you use `input_shape` param in `DatasetCreator()` like below, `AugmentImge()` generate all transformation matrix when __init__() is called. It reduces CPU load while learning. 
 
 ```Python
 # define training and validation dataset using tfaug:
@@ -226,6 +227,7 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       random_shear=[10, 10],
                                       random_crop=input_size,
                                       dtype=tf.float16,
+                                      input_shape=[batch_size]+input_size+[3],#batch, y, x, channel
                                       training=True)
                        .dataset_from_tfrecords(tfrecords_train))
 
