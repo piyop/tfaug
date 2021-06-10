@@ -1,3 +1,24 @@
+* [tfaug package](#tfaug-package)
+   * [Features](#features)
+   * [Dependancies](#dependancies)
+      * [For test script](#for-test-script)
+   * [Supported Augmentations](#supported-augmentations)
+   * [Install](#install)
+   * [Samples](#samples)
+         * [Classification Problem](#classification-problem)
+         * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
+         * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
+         * [Define and Leanrn Model Using Defined Dataset](#define-and-leanrn-model-using-defined-dataset)
+         * [Segmentation Problem](#segmentation-problem)
+         * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
+         * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
+         * [Define and Leanrn Model Using Defined Dataset](#define-and-leanrn-model-using-defined-dataset-1)
+      * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
+      * [Use AugmentImg Directly](#use-augmentimg-directly)
+         * [1. Initialize](#1-initialize)
+         * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
+
+
 # tfaug package
 Tensorflow create tf.data.Dataset and image augmentation support classes.
 
@@ -6,21 +27,21 @@ This package include below 3 classes:
  * TfrecordConverter - pack images and labels to tfrecord format
  * AugmentImg - image augmentation class which is used inside DatasetCreator implicitly.
 
-## Features
+# Features
  * augment input image and label image with same transformations at the same time.
  * augment on batch which is more efficient than augment each image.
  * use only tensorflow operators and basic statments and functions. Because any other operations or functions (e.g. numpy functions) cause limitation on multiprocess augmentation while using @tf.function to get a better peformance [as mentined here](https://www.tensorflow.org/guide/function).
 
-## Dependancies
+# Dependancies
  * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
-### For test script
+## For test script
  * pillow
  * numpy
  * matplotlib
 
-## Supported Augmentations
+# Supported Augmentations
  * standardize
  * resize
  * random_rotation
@@ -37,15 +58,15 @@ This package include below 3 classes:
  * random_noise
    * add random gaussian pixcel noise
  
-## Install
+# Install
 python -m pip install git+https://github.com/piyop/tfaug
 
-## Samples
+# Samples
 
 Simple Classification and Segmentation Usage is shown below. 
 Whole ruunable codes is in sample_tfaug.py
 
-#### Classification Problem
+## Classification Problem
 Download, convert to tfrecord and learn MNIST dataset.
 Below examples are part of `learn_mnist()` in sample_tfaug.py
 
@@ -62,7 +83,7 @@ os.makedirs(DATADIR+'mnist', exist_ok=True)
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 ```
 
-#### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
+### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 Convert training and validation(test) images and labels into Tfrecord format by TfrecordConverter.
 Therefore, Tensorflow could be load data from Tfrecord format with least overhead and parallel reading. 
 ```Python
@@ -73,7 +94,7 @@ TfrecordConverter().tfrecord_from_ary_label(
     x_test, y_test, DATADIR+'mnist/test.tfrecord')
  ```
 
-#### Create Dataset by DatasetCreator()
+### Create Dataset by DatasetCreator()
 Create and apply augmentation to training and validation Tfrecords by DatasetCreator.
 For the classification problem, use `label_type = 'class'` for DatasetCreator constractor.
 Set image augmentation params to DatasetCreator constractor.
@@ -107,7 +128,7 @@ ds_train = ds_train.map(lambda x, y: (x/255, y))
 ds_train = ds_valid.map(lambda x, y: (x/255, y))
 ```
 
-#### Define and Leanrn Model Using Defined Dataset
+### Define and Leanrn Model Using Defined Dataset
 Define Model
 ```Python
 model = tf.keras.models.Sequential([
@@ -141,7 +162,7 @@ model.evaluate(ds_valid,
                verbose=2)
 ```
 
-#### Segmentation Problem
+## Segmentation Problem
 Download ADE20k dataset and convert to the tfrecord
 Below examples are part of `learn_mnist()` in sample_tfaug.py
 
@@ -157,7 +178,7 @@ Download and convert ADE20k dataset to tfrecord by defined function download_and
 download_and_convert_ADE20k(input_size)
 ```
 
-#### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
+### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 In download_and_convertADE20k(), split original images to patch image by `TfrecordConverter.get_patch()`
 Though ADE20k images have not same image size, tensorflow model input should be exactly same size.
 ```Python
@@ -182,7 +203,7 @@ converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
                                    path_tfrecord)
  ```
 
-#### Create Dataset by DatasetCreator()
+### Create Dataset by DatasetCreator()
 After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.
 For segmentation problem, use `label_type = 'segmentation'` to the constractor of the DatasetCreator.<br/>
 
@@ -217,7 +238,7 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
 
 ```
 
-#### Define and Leanrn Model Using Defined Dataset
+### Define and Leanrn Model Using Defined Dataset
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
@@ -256,10 +277,10 @@ ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
 
 
 
-### Use AugmentImg Directly 
+## Use AugmentImg Directly 
 Above examples ware create tf.data.Dataset by DatasetCreator. If you need to control your dataflow in other way, you could use AugmentImage Directly
 
-#### 1. Initialize
+### 1. Initialize
 ```python  
 from tfaug import AugmentImg 
 #set your augment parameters below:
@@ -281,7 +302,7 @@ arg_fun = AugmentImg(standardize=False,
  
 ```
 
-#### 2. use in tf.data.map() after batch()
+### 2. use in tf.data.map() after batch()
 ```python 
 ds=tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(image),
                       tf.data.Dataset.from_tensor_slices(label))) \
