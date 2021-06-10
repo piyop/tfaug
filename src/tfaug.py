@@ -24,7 +24,7 @@ class DatasetCreator():
                  shuffle_buffer: int,
                  batch_size: int,
                  label_type: str,
-                 repeat : bool = False,
+                 repeat: bool = False,
                  preproc: Callable = None,
                  **kwargs: dict):
         """
@@ -50,8 +50,7 @@ class DatasetCreator():
         None.
 
         """
-        
-        
+
         self._shuffle_buffer = shuffle_buffer
         self._batch_size = batch_size
         self._datagen_confs = kwargs
@@ -125,18 +124,20 @@ class DatasetCreator():
         aug_fun = AugmentImg(**self._datagen_confs, clslabel=self._clslabel)
 
         if ratio_samples is None:
-            ds, num_img = self._get_ds_tfrecord(self._shuffle_buffer, path_tfrecords)            
+            ds, num_img = self._get_ds_tfrecord(
+                self._shuffle_buffer, path_tfrecords)
         else:
             assert len(
                 path_tfrecords[0][0]) > 1, "if use ratio_samples, you must use 2d list"
             dss = []
             for path_tfrecord in path_tfrecords:
-                dss.append(self._get_ds_tfrecord(self._shuffle_buffer, path_tfrecord))
-                
+                dss.append(self._get_ds_tfrecord(
+                    self._shuffle_buffer, path_tfrecord))
+
             ds = tf.data.experimental.sample_from_datasets(
-                list(zip(*dss))[0], ratio_samples)    
-            num_img = sum(list(zip(*dss))[1])            
-        
+                list(zip(*dss))[0], ratio_samples)
+            num_img = sum(list(zip(*dss))[1])
+
         ds_aug = (ds.batch(self._batch_size)
                   .apply(tf.data.experimental.parse_example_dataset(self._tfexample_format))
                   .map(self._decoder, num_parallel_calls=AUTOTUNE))
@@ -156,10 +157,10 @@ class DatasetCreator():
             path_tfrecords, num_parallel_reads=len(path_tfrecords))
         if self._repeat:
             ds = ds.repeat()
-            
+
         if shuffle_buffer:
             ds = ds.shuffle(shuffle_buffer)
-            
+
         num_img = 0
         for path_tfrecord in path_tfrecords:
             with open(os.path.splitext(path_tfrecord)[0]+'.json') as fp:
@@ -167,7 +168,6 @@ class DatasetCreator():
                 num_img += fileds['imgcnt']
 
         return ds, num_img
-    
 
     def _decoder(self, tfexamples):
         return [tf.map_fn(tf.image.decode_png, tfexamples[key], dtype=tf.uint8)
@@ -478,7 +478,12 @@ class AugmentImg():
         self._num_transforms = num_transforms
         self._training = training
 
-        if self._input_shape and self._num_transforms:
+        self._transform_active = (isinstance(self._random_rotation, tf.Tensor) or
+                                  isinstance(self._random_zoom, tf.Tensor) or
+                                  isinstance(self._random_shift, tf.Tensor) or
+                                  isinstance(self._random_shear, tf.Tensor))
+
+        if self._input_shape and self._num_transforms and self._transform_active:
             print('generating transform matrix...', flush=True)
             rep_cnt = math.ceil(self._num_transforms/self._input_shape[0])
             self._Ms = []
@@ -511,10 +516,7 @@ class AugmentImg():
 
     def _get_transform(self, imgshape):
 
-        if (isinstance(self._random_rotation, tf.Tensor) or
-            isinstance(self._random_zoom, tf.Tensor) or
-            isinstance(self._random_shift, tf.Tensor) or
-                isinstance(self._random_shear, tf.Tensor)):
+        if self._transform_active:
 
             in_size = imgshape[1:3]
             batch_size = imgshape[0]
@@ -621,10 +623,7 @@ class AugmentImg():
             if self._random_flip_up_down:
                 image = tf.image.random_flip_up_down(image)
 
-            if (isinstance(self._random_rotation, tf.Tensor) or
-                isinstance(self._random_zoom, tf.Tensor) or
-                isinstance(self._random_shift, tf.Tensor) or
-                    isinstance(self._random_shear, tf.Tensor)):
+            if self._transform_active:
 
                 if hasattr(self, "_Ms"):
                     M = tf.gather(self._Ms, tf.cast(tf.random.uniform(
