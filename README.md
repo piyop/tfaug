@@ -269,8 +269,8 @@ model.evaluate(ds_valid,
 
 ### Adjust sampling ratios from multiple tfrecord files
 If number of images in each class are significantly imvalanced, you may want adjust sampling ratios from each class.
-`DatasetCreator.dataset_from_path` could accepts sampling ratios. <br/>
-In that case, you should use 2d nested list for argument of `DatasetCreator.dataset_from_path()` and assign argment `sampling_ratios`  for every 1d lists in 2d list.
+`DatasetCreator.dataset_from_tfrecords` could accepts sampling ratios. <br/>
+In that case, you must use 2 dimensional nested list representing tfrecord files to `path_records` in `DatasetCreator.dataset_from_tfrecords()` and assign `sampling_ratios` parameter for every 1 dimensional lists in 2 dimensional `path_records`.
 A simple example was written in test_tfaug.py like below:
 ```python
 dc = DatasetCreator(5, 10,
