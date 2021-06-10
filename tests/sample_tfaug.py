@@ -52,6 +52,7 @@ def lean_mnist():
     ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                           batch_size=batch_size,
                                           label_type='class',
+                                          repeat=True,
                                           random_zoom=[0.1, 0.1],
                                           random_rotation=20,
                                           random_shear=[10, 10],
@@ -60,11 +61,10 @@ def lean_mnist():
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                           batch_size=batch_size,
                                           label_type='class',
+                                          repeat=True,
                                           training=False)
                            .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
-    # add repeat operation
-    ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
 
     # constant reguralization
     ds_train = ds_train.map(lambda x, y: (x/255, y))
@@ -108,6 +108,7 @@ def learn_ade20k():
     ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                           batch_size=batch_size,
                                           label_type='segmentation',
+                                          repeat=True,
                                           standardize=True,
                                           random_zoom=[0.1, 0.1],
                                           random_rotation=10,
@@ -122,6 +123,7 @@ def learn_ade20k():
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                           batch_size=batch_size,
                                           label_type='segmentation',
+                                          repeat=True,
                                           standardize=True,
                                           random_crop=input_size,
                                           dtype=tf.float16,
