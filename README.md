@@ -122,8 +122,6 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       training=False)
                        .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
-# add repeat operation
-ds_train, ds_valid = ds_train.repeat(), ds_valid.repeat()
 ```
 
 Add constant reguralization to training and validation datasets.
