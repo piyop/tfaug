@@ -23,7 +23,7 @@
 
 # tfaug package
 Tensorflow >= 2 recommends to be feeded data by tf.data.Dataset.
-This package supports creation of tf.data.Dataset (data generator in python) and image augmentation.
+This package supports creation of tf.data.Dataset (generator) and augmentation for image.
 
 This package includes below 3 classes:
  * DatasetCreator - creator of tf.data.Dataset from tfrecords or image paths
