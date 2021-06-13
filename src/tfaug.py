@@ -697,6 +697,7 @@ class AugmentImg():
         # num_dims
         axs = tf.constant((1, 2, 3))
         ndim = tf.rank(image)
+        image = tf.cast(image, tf.float32)
         max_axis = tf.math.reduce_max(image, axs[:ndim-1], keepdims=True)
         min_axis = tf.math.reduce_min(image, axs[:ndim-1], keepdims=True)
         return (tf.cast(image, tf.float32) - min_axis) / (max_axis - min_axis) - 0.5
