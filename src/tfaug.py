@@ -432,8 +432,8 @@ class AugmentImg():
             tfaug cast input images to this dtype after geometric transformation.
         input_shape : Tuple(int, int), The default is None
             input image (y,x) dimensions. 
-            if you use this option, cpu augmentation load is decreased.
-        num_transforms : int, The default is 10000
+            To reduce cpu load by generate all transform matrix at first, you mus use this.
+        num_transforms : int, The default is 10,000
             number of transformation matrixes generated in advance. 
             this must specify input_shape.
         training : bool, optional
@@ -699,4 +699,4 @@ class AugmentImg():
         ndim = tf.rank(image)
         max_axis = tf.math.reduce_max(image, axs[:ndim-1], keepdims=True)
         min_axis = tf.math.reduce_min(image, axs[:ndim-1], keepdims=True)
-        return (image - min_axis) / (max_axis - min_axis) - 0.5
+        return (tf.cast(image, tf.float32) - min_axis) / (max_axis - min_axis) - 0.5
