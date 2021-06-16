@@ -214,38 +214,49 @@ class TfrecordConverter():
 
     def tfrecord_from_path_label(self, path_imgs, labels, path_out):
         self.save_png_label_tfrecord(
-            path_imgs, labels, path_out, lambda x: np.array(Image.open(x)))
+            path_imgs, path_out, lambda x: np.array(Image.open(x)), labels)
 
+    def tfrecord_from_path(self, path_imgs, path_out):
+        self.save_png_label_tfrecord(
+            path_imgs, path_out, lambda x: np.array(Image.open(x)))
+        
     def tfrecord_from_ary_label(self, ary, labels, path_out):
         self.save_png_label_tfrecord(
-            ary, labels, path_out, lambda x: np.array(x))
+            ary, path_out, lambda x: np.array(x), labels)
 
-    def save_png_label_tfrecord(self, imgs, labels, path_out, reader_func):
+    def save_png_label_tfrecord(self, imgs, path_out, reader_func, labels=None):
 
-        seg_label = True if isinstance(labels[0], str) else False
-        if seg_label:
-            def label_feature(ilabel): return self._bytes_feature(
-                self.np_to_pngstr(ilabel))
-        else:
-            def label_feature(ilabel): return self._int64_feature(ilabel)
-
-        def image_example(iimg, ilabel):
-            feature = {'image': self._bytes_feature(self.np_to_pngstr(iimg)),
-                       'label': label_feature(ilabel)}
+        if labels is not None:
+            seg_label = True if isinstance(labels[0], str) or \
+            (isinstance(labels, np.ndarray) and labels.ndim >= 3) else False
+            if seg_label:
+                def label_feature(ilabel): return self._bytes_feature(
+                    self.np_to_pngstr(ilabel))
+            else:
+                def label_feature(ilabel): return self._int64_feature(ilabel)
+                
+        def image_example(iimg, ilabel=None):
+            feature = {'image': self._bytes_feature(self.np_to_pngstr(iimg))}
+            if ilabel is not None:
+                feature['label'] = label_feature(ilabel)                
             return tf.train.Example(features=tf.train.Features(feature=feature))
 
         if not self._dry_run:
             # save tfrecord
             with tf.io.TFRecordWriter(path_out) as writer:
-                for (img, label) in tqdm(zip(imgs, labels),
+                for i, img in tqdm(enumerate(imgs),
                                          total=len(imgs),
                                          leave=False):
                     img = reader_func(img)
-                    if seg_label:
-                        ext = os.path.splitext(label)[1]
-                        assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
-                            "file extention is imcompatible:"+label
-                        label = reader_func(label)
+                    if labels:
+                        label = labels[i]
+                        if seg_label:
+                            ext = os.path.splitext(label)[1]
+                            assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
+                                "file extention is imcompatible:"+label
+                            label = reader_func(label)
+                    else:
+                        label = None
                     # use same image as msk
                     writer.write(image_example(img, label).SerializeToString())
 
@@ -700,4 +711,4 @@ class AugmentImg():
         image = tf.cast(image, tf.float32)
         max_axis = tf.math.reduce_max(image, axs[:ndim-1], keepdims=True)
         min_axis = tf.math.reduce_min(image, axs[:ndim-1], keepdims=True)
-        return (tf.cast(image, tf.float32) - min_axis) / (max_axis - min_axis) - 0.5
+        return (image - min_axis) / (max_axis - min_axis) - 0.5

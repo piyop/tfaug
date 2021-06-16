@@ -115,7 +115,7 @@ def learn_ade20k():
                                           random_shear=[10, 10],
                                           random_crop=input_size,
                                           dtype=tf.float16,
-                                          input_shape=[batch_size]+input_size+[3],
+                                          input_shape=[batch_size]+input_size+[3],#batch, y, x, channel
                                           training=True)
                            .dataset_from_tfrecords(tfrecords_train))
 
@@ -358,7 +358,7 @@ def check_ADE20k_label():
 def aug_multi_input_and_pyfunc():
 
     batch_size = 1
-    filepaths = [DATADIR+'Lenna.png'] * 10
+    filepaths = [DATADIR+'kanoko.png'] * 10
 
     # define tf.data.Dataset
     ds = tf.data.Dataset.from_tensor_slices(

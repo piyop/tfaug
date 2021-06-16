@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from collections import namedtuple
+from tqdm import tqdm
 
 import tensorflow_addons as tfa
 import tensorflow as tf
@@ -111,32 +112,6 @@ class TestTfaug(unittest.TestCase):
                            DATADIR+'test_ds_from_tfrecord.png')
 
 
-        #test for ratio_samples
-        labels = [1] * 10 * BATCH_SIZE
-        path_tfrecord_1 = DATADIR+'ds_from_tfrecord_1.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist,
-                                                     labels,
-                                                     path_tfrecord_1)
-        
-        dc = DatasetCreator(5, 10,
-                            label_type='class',
-                            repeat=False,
-                            **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
-                                             [path_tfrecord_1, path_tfrecord_1]],
-                                            ratio_samples=np.array([0.1,1000],dtype=np.float32))
-        img, label = next(iter(ds.take(1)))
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert all(label == 1), "sampled label is invalid"         
-
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
-                                            ratio_samples=np.array([1,1],dtype=np.float32))
-        rep_cnt = 0
-        for img, label in iter(ds):
-            rep_cnt += 1
-        assert rep_cnt == 4, "repetition count is invalid"
-        assert any(label == 1) and any(label == 0), "sampled label is invalid"         
-
         # test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
         TfrecordConverter().tfrecord_from_path_label(flist,
@@ -159,6 +134,74 @@ class TestTfaug(unittest.TestCase):
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
         
+        
+        
+    def test_dataset_from_tfrecord_sample_ratio(self):
+
+        random_crop_size = [100, 254]
+        # data augmentation configurations:
+        DATAGEN_CONF = {'standardize': True,
+                        'resize': None,
+                        'random_rotation': 5,
+                        'random_flip_left_right': True,
+                        'random_flip_up_down': False,
+                        'random_shift': [.1, .1],
+                        'random_zoom': [0.2, 0.2],
+                        'random_shear': [5, 5],
+                        'random_brightness': 0.2,
+                        'random_hue': 0.01,
+                        'random_contrast': [0.6, 1.4],
+                        'random_crop': random_crop_size,
+                        'random_noise': 100,
+                        'random_saturation': [0.5, 2]}
+        
+        
+        BATCH_SIZE = 2
+        flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
+        #test for ratio_samples
+        labels = [0] * 10 * BATCH_SIZE
+        path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
+        TfrecordConverter().tfrecord_from_path_label(flist,
+                                                     labels,
+                                                     path_tfrecord_0)
+        labels = [1] * 10 * BATCH_SIZE
+        path_tfrecord_1 = DATADIR+'ds_from_tfrecord_1.tfrecord'
+        TfrecordConverter().tfrecord_from_path_label(flist,
+                                                     labels,
+                                                     path_tfrecord_1)
+        
+        dc = DatasetCreator(5, 10,
+                            label_type='class',
+                            repeat=False,
+                            **DATAGEN_CONF,  training=True)
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+                                            ratio_samples=np.array([0.1,1000],dtype=np.float32))
+        img, label = next(iter(ds.take(1)))
+        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+        assert all(label == 1), "sampled label is invalid"         
+
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+                                            ratio_samples=np.array([1,1],dtype=np.float32))
+        rep_cnt = 0
+        for img, label in iter(ds):
+            rep_cnt += 1
+        assert rep_cnt == 4, "repetition count is invalid"
+        assert any(label == 1) and any(label == 0), "sampled label is invalid"    
+        
+        #check for sampling ratio
+        dc = DatasetCreator(5, 10,
+                            label_type='class',
+                            repeat=True,
+                            **DATAGEN_CONF,  training=True)
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
+                                            ratio_samples=np.array([1,10],dtype=np.float32))
+        ds = ds.take(100)
+        cnt_1, cnt_0 = 0,0
+        for img, label in ds:
+            cnt_0 += (label.numpy() == 0).sum()
+            cnt_1 += (label.numpy() == 1).sum()
+            
+        assert 1/10 - 1/100 < cnt_0 / cnt_1 < 1/10 + 1/100, "sampling ratio is invalid"
         
         
         
@@ -686,4 +729,4 @@ class TestTfaug(unittest.TestCase):
 if __name__ == '__main__':
     pass
     unittest.main()
-    # TestTfaug().test_dataset_from_tfrecord()
+    # TestTfaug().test_tfrecord_from_path()
