@@ -4,7 +4,7 @@
 @author: t.okuda
 """
 
-import math
+import math, sys
 import io
 import os
 import json
@@ -28,7 +28,7 @@ class DatasetCreator():
                  preproc: Callable = None,
                  **kwargs: dict):
         """
-        
+
 
         Parameters
         ----------
@@ -102,7 +102,7 @@ class DatasetCreator():
 
     def dataset_from_tfrecords(self, path_tfrecords, ratio_samples=None):
         """
-        
+
 
         Parameters
         ----------
@@ -179,7 +179,7 @@ class TfrecordConverter():
 
     def __init__(self, dry_run=False):
         """
-        
+        converter of images to tfrecords
 
         Parameters
         ----------
@@ -219,7 +219,7 @@ class TfrecordConverter():
     def tfrecord_from_path(self, path_imgs, path_out):
         self.save_png_label_tfrecord(
             path_imgs, path_out, lambda x: np.array(Image.open(x)))
-        
+
     def tfrecord_from_ary_label(self, ary, labels, path_out):
         self.save_png_label_tfrecord(
             ary, path_out, lambda x: np.array(x), labels)
@@ -228,27 +228,27 @@ class TfrecordConverter():
 
         if labels is not None:
             seg_label = True if isinstance(labels[0], str) or \
-            (isinstance(labels, np.ndarray) and labels.ndim >= 3) else False
+                (isinstance(labels, np.ndarray) and labels.ndim >= 3) else False
             if seg_label:
                 def label_feature(ilabel): return self._bytes_feature(
                     self.np_to_pngstr(ilabel))
             else:
                 def label_feature(ilabel): return self._int64_feature(ilabel)
-                
+
         def image_example(iimg, ilabel=None):
             feature = {'image': self._bytes_feature(self.np_to_pngstr(iimg))}
             if ilabel is not None:
-                feature['label'] = label_feature(ilabel)                
+                feature['label'] = label_feature(ilabel)
             return tf.train.Example(features=tf.train.Features(feature=feature))
 
         if not self._dry_run:
             # save tfrecord
             with tf.io.TFRecordWriter(path_out) as writer:
                 for i, img in tqdm(enumerate(imgs),
-                                         total=len(imgs),
-                                         leave=False):
+                                   total=len(imgs),
+                                   leave=False):
                     img = reader_func(img)
-                    if labels:
+                    if labels is not None:
                         label = labels[i]
                         if seg_label:
                             ext = os.path.splitext(label)[1]
@@ -264,87 +264,94 @@ class TfrecordConverter():
         with open(os.path.splitext(path_out)[0]+'.json', 'w') as file:
             json.dump({'imgcnt': len(imgs)}, file)
 
-    def get_paded_np(self, npimg, x1, y1, x2, y2):
+    def _check_patch_axis(self, patch_size):
+        if isinstance(patch_size, list) and len(patch_size) > 1:
+            patch_x, patch_y = patch_size[1], patch_size[0]
+        else:
+            patch_x, patch_y = patch_size, patch_size
+        return patch_x, patch_y
+
+    def split_to_patch(self, npimg, patch_size, buffer_size, dtype=np.uint8):
         """
-        get image which had cropped and paded out of input npimg size
+        split npimgs to patch by axies xx and yy
 
         Parameters
         ----------
-        npimg : 2d np.ndarray()
-            input ary
-        x1 : int
-            left point of npimg. if left padding is needed, this value must be negative.
-        y1 : int
-            top point of npimg. if top padding is needed, this value must be negative.
-        x2 : int
-            right point of npimg. if right padding is needed, x2 > npimg.shape[1]
-        y2 : int
-            bottom point of npimg. if bottom padding is needed, y2 > npimg.shape[0]
+        npimg : 3d np.ndarray
+            input numpy images shape[y_dim, x_dim, channel_dim]
+        patch_size : int or Tuple[int, int]
+            patch size split to
+        buffer_size : int or Tuple[int, int]
+            buffer area size around patch
+        dtype : np.typeDict
+            output dtype. The default is np.uint8.
 
         Returns
         -------
-        TYPE
-            paded image if needed.
+        allnp : 4d np.ndarray
+            splitted numpy array. splitted images packed to first dimension
 
         """
 
-        if npimg.ndim == 2:
-            len_y, len_x = npimg.shape
-        elif npimg.ndim == 3:
-            len_y, len_x = npimg.shape[:2]
-        else:
-            raise NotImplementedError('npimg.ndim must 2<=ndim<=3')
+        patch_x, patch_y = self._check_patch_axis(patch_size)
 
-        if x1 < 0 or x2 > len_x or y1 < 0 or y2 > len_y:
-            size_x = x2 - x1
-            size_y = y2 - y1
+        xx = [x for x in range(0, npimg.shape[1], patch_x)]
+        yy = [y for y in range(0, npimg.shape[0], patch_y)]
 
-            offset_left = - x1 if x1 < 0 else 0
-            offset_right = x2 - len_x if x2 > len_x else 0
-            offset_top = - y1 if y1 < 0 else 0
-            offset_bottom = y2 - len_y if y2 > len_y else 0
-
-            if npimg.ndim == 2:
-                npary = np.zeros((size_y, size_x))
-            elif npimg.ndim == 3:
-                npary = np.zeros((size_y, size_x, npimg.shape[2]))
-
-            npary[offset_top:size_y - offset_bottom, offset_left:size_x - offset_right, Ellipsis] = \
-                npimg[y1 + offset_top:y2 - offset_bottom, x1 +
-                      offset_left:x2 - offset_right, Ellipsis]
-
-            return npary
-        else:
-            return npimg[y1:y2, x1:x2, Ellipsis]
+        return self.get_patch(npimg, patch_size, buffer_size, xx, yy, dtype=np.uint8)
 
     def get_patch(self, npimg, patch_size, buffer_size, xx, yy, dtype=np.uint8):
         """
-        split npimg to patch
-        """
+        split npimgs to patch by axies xx and yy
 
-        if isinstance(patch_size, list) and len(patch_size) > 1:
-            patch_x, patch_y = patch_size[0], patch_size[1]
-        else:
-            patch_x, patch_y = patch_size, patch_size
+        Parameters
+        ----------
+        npimg : 3d np.ndarray
+            input numpy images shape[y_dim, x_dim, channel_dim]
+        patch_size : int or Tuple[int, int]
+            patch size split to
+        buffer_size : int or Tuple[int, int]
+            buffer area size around patch
+        xx : List[int, int, ...]
+            left-top point of x axies
+        yy : List[int, int, ...]
+            left-top point of y axies.
+        dtype : np.typeDict
+            output dtype. The default is np.uint8.
+
+        Returns
+        -------
+        allnp : 4d np.ndarray
+            splitted numpy array. splitted images packed to first dimension
+
+        """
+        org_ndim = npimg.ndim
+        if org_ndim == 2:
+            npimg = np.expand_dims(npimg, 2)
+
+        patch_x, patch_y = self._check_patch_axis(patch_size)
 
         if isinstance(buffer_size, list) and len(buffer_size) > 1:
-            buffer_x, buffer_y = buffer_size[0], buffer_size[1]
+            buffer_x, buffer_y = buffer_size[1], buffer_size[0]
         else:
             buffer_x, buffer_y = buffer_size, buffer_size
 
-        img_size_y = 2*buffer_x + patch_x
-        img_size_x = 2*buffer_y + patch_y
+        padded = np.pad(npimg,
+                        [[buffer_y, yy[-1]+1 - npimg.shape[0] + buffer_y + patch_y],
+                         [buffer_x, xx[-1]+1 - npimg.shape[1] + buffer_x + patch_x],
+                         [0, 0]], 'constant')
 
+        img_size_y = 2*buffer_y + patch_y
+        img_size_x = 2*buffer_x + patch_x
         # get paded array
-        all_image = [self.get_paded_np(npimg,
-                                       x - buffer_x,
-                                       y - buffer_y,
-                                       x + buffer_x + img_size_x,
-                                       y + buffer_y + img_size_y)
+        all_image = [padded[y:y + img_size_y, x:x + img_size_x, :]
                      for y in yy for x in xx]
 
         allnp = np.array(all_image, dtype=dtype)
-        del all_image
+        del all_image, padded
+        if org_ndim == 2:
+            allnp = allnp[:,:,:,0]
+            
         return allnp
 
 
@@ -370,6 +377,8 @@ class AugmentImg():
                  random_contrast: Tuple[float, float] = None,
                  random_crop: Tuple[int, int] = None,
                  random_noise: float = None,
+                 random_blur: float = None,
+                 random_blur_kernel: float = 3,
                  interpolation: str = 'nearest',
                  inshape: Tuple[int, int, int, int] = None,
                  clslabel: bool = False,
@@ -435,14 +444,20 @@ class AugmentImg():
             The default is None.
         random_noise : float, optional
             add random gausian noise. random_noise value mean sigma param of gaussian.
+        random_blur : float, optional
+            add random gausian blur. This value means sigma param of gaussian.    
+            random_blur generate sigma as uniform(0, random_blur) for every mini-batch
+            random blur convert integer images to float images.
+        random_blur_kernel : int, optional
+            kernel size of gaussian random blur . The default is 3
         interpolation : str, The default is nearest.
             interpolation method. nearest or bilinear
         clslabel : bool, The default is False
             If false, labels are presumed to be the same dimension as the image
         dtype : tf.Dtype, The default is None
             tfaug cast input images to this dtype after geometric transformation.
-        input_shape : Tuple(int, int), The default is None
-            input image (y,x) dimensions. 
+        input_shape : Tuple(int, int, int, int), The default is None
+            input image (bathc,y,x,channels) dimensions. 
             To reduce cpu load by generate all transform matrix at first, you mus use this.
         num_transforms : int, The default is 10,000
             number of transformation matrixes generated in advance. 
@@ -482,6 +497,8 @@ class AugmentImg():
         if random_crop:
             self._random_crop = tf.cast(random_crop, tf.int32)
         self._random_noise = random_noise
+        self._random_blur = random_blur
+        self._random_blur_kernel = random_blur_kernel
         self._interpolation = interpolation
         self._clslabel = clslabel
         self._dtype = dtype
@@ -504,7 +521,7 @@ class AugmentImg():
                 np.array(self._Ms).reshape(
                     rep_cnt*self._input_shape[0], 8)[:self._num_transforms])
 
-    @tf.function
+    # @tf.function
     def __call__(self, image: tf.Tensor,
                  label: tf.Tensor = None) -> Tuple[tf.Tensor, tf.Tensor]:
         """
@@ -523,6 +540,7 @@ class AugmentImg():
             augmented images and labels.
 
         """
+        
         return self._augmentation(image, label, self._training)
 
     def _get_transform(self, imgshape):
@@ -693,18 +711,22 @@ class AugmentImg():
                                                 0, self._random_noise)
                 noise = tf.cast(noise_scale * noise_source, image.dtype)
                 image += noise
+            if self._random_blur:
+                sigmas = tf.random.uniform([batch_size], 0, self._random_blur)
+                image = self._add_blur(
+                    image, sigmas, self._random_blur_kernel, last_image_dim)
 
         if self._standardize:
             # tf.image.per_image_standardization have a bug #33892
             # image = tf.image.per_image_standardization(image)
-            image = self.standardization(image)
+            image = self._standardization(image)
 
         if label is not None:
             return image, label
         else:
             return image
 
-    def standardization(self, image):
+    def _standardization(self, image):
         # num_dims
         axs = tf.constant((1, 2, 3))
         ndim = tf.rank(image)
@@ -712,3 +734,55 @@ class AugmentImg():
         max_axis = tf.math.reduce_max(image, axs[:ndim-1], keepdims=True)
         min_axis = tf.math.reduce_min(image, axs[:ndim-1], keepdims=True)
         return (image - min_axis) / (max_axis - min_axis) - 0.5
+
+    def _add_blur(self, images, sigmas, kernel_size, channel_size):
+
+        kernel = self._get_gaussian_kernels(sigmas, kernel_size)
+        kernel = tf.expand_dims(kernel, 3)
+        kernel = tf.repeat(kernel, channel_size, axis=3)
+
+        return self._cnv2d_minibatchwise(images, kernel)
+
+    def _get_gaussian_kernels(self, sigmas, kernel_size):
+
+        sigma = tf.expand_dims(tf.convert_to_tensor(sigmas), 1)
+        x = tf.range(-kernel_size // 2 + 1, kernel_size // 2 + 1)
+        x = tf.expand_dims(x, 0)
+        x = tf.repeat(x, tf.shape(sigma)[0], axis=0)
+        x = tf.cast(x ** 2, sigma.dtype)
+        x = tf.exp(-x / (2.0 * (sigma ** 2)))
+        x = x / tf.math.reduce_sum(x, axis=1, keepdims=True)
+        y = tf.expand_dims(x, 2)
+        x = tf.expand_dims(x, 1)
+
+        return tf.matmul(y, x)
+
+    def _cnv2d_minibatchwise(self, imgs, kernels):
+
+        # tf.function is not support iter()
+        kb, kh, kw, kc = (tf.shape(kernels)[0],
+                          tf.shape(kernels)[1],
+                          tf.shape(kernels)[2],
+                          tf.shape(kernels)[3])
+
+        kernel_t = tf.transpose(kernels, [1, 2, 0, 3])
+        kernel_t = tf.reshape(kernel_t, (kh, kw, kb*kc, 1))
+        padded = tf.pad(imgs,
+                        [[0, 0], [kh//2, kh//2], [kw//2, kw//2], [0, 0]],
+                        "SYMMETRIC")
+        
+        img_t = tf.transpose(padded, [1, 2, 0, 3])
+        img_t = tf.reshape(img_t, (1, tf.shape(padded)[1], 
+                                   tf.shape(padded)[2], 
+                                   tf.shape(padded)[0]*tf.shape(padded)[3]))
+        img_t = tf.cast(img_t, dtype=kernels.dtype)
+
+        cnved = tf.nn.depthwise_conv2d(img_t,
+                                       filter=kernel_t,
+                                       strides=[1, 1, 1, 1],
+                                       padding='VALID')
+        cnved = tf.reshape(cnved, [tf.shape(imgs)[1], 
+                                   tf.shape(imgs)[2], 
+                                   tf.shape(imgs)[0],
+                                   tf.shape(imgs)[3]])
+        return tf.transpose(cnved, [2, 0, 1, 3])

@@ -25,12 +25,89 @@ DATADIR = r'testdata\tfaug'+os.sep
 
 class TestTfaug(unittest.TestCase):
 
+    def test_add_blur(self):
+
+        imgs = np.random.rand(2*5*4*3).reshape(2, 5, 4, 3) * 255
+        sigmas = (1.0, 0.5)
+        kernel_size = 3
+        
+        plt.imshow(imgs[1].astype(np.int8))
+
+        padimg = np.pad(imgs, [[0, 0], [1, 1], [1, 1],
+                        [0, 0]], mode='symmetric')
+        ret = AugmentImg()._add_blur(imgs, sigmas, 3, 3)
+        plt.imshow(ret.numpy()[1].astype(np.int8))
+
+        kernels = AugmentImg()._get_gaussian_kernels(sigmas, kernel_size)
+        kernels = tf.repeat(tf.expand_dims(kernels, 3), 3, 3)
+
+        testval = tf.reduce_sum(padimg[:, 0:3, 0:3, :] * kernels, axis=(1, 2))
+        assert np.allclose(ret[:, 0, 0, :], testval), 'invalid blur'
+        testval = tf.reduce_sum(padimg[:, 4:7, 3:6, :] * kernels, axis=(1, 2))
+        assert np.allclose(ret[:, 4, 3, :], testval), 'invalid blur'
+
+    def test_get_gaussian_kernels(self):
+
+        sigmas = (1.0, 1.5)
+        kernel_size = 3
+
+        # check kernel
+        kernel_tfaug = AugmentImg()._get_gaussian_kernels(sigmas, kernel_size)
+
+        kernel_tfa = tfa.image.filters._get_gaussian_kernel(
+            sigmas[0], kernel_size)
+        gaussian_kernel_x = tf.reshape(kernel_tfa, [1, kernel_size])
+        gaussian_kernel_y = tf.reshape(kernel_tfa, [kernel_size, 1])
+        kernel_tfa = tfa.image.filters._get_gaussian_kernel_2d(
+            gaussian_kernel_y, gaussian_kernel_x)
+
+        assert (kernel_tfa == kernel_tfaug[0]).numpy(
+        ).all(), 'invalid blur kernel1'
+
+        kernel_tfa = tfa.image.filters._get_gaussian_kernel(
+            sigmas[1], kernel_size)
+        gaussian_kernel_x = tf.reshape(kernel_tfa, [1, kernel_size])
+        gaussian_kernel_y = tf.reshape(kernel_tfa, [kernel_size, 1])
+        kernel_tfa = tfa.image.filters._get_gaussian_kernel_2d(
+            gaussian_kernel_y, gaussian_kernel_x)
+
+        assert (kernel_tfa == kernel_tfaug[1]).numpy(
+        ).all(), 'invalid blur kernel2'
+
+    def test_cnv2d_minibatchwise(self):
+
+        imgs = np.arange(2*5*4*3, dtype=np.float32).reshape(2, 5, 4, 3)
+
+        kernels = np.arange(2*3*3*1, dtype=np.float32).reshape(2, 3, 3, 1)
+        kernels = np.repeat(kernels, 3, axis=3)
+
+        ret = AugmentImg()._cnv2d_minibatchwise(imgs, kernels)
+
+        assert np.allclose((imgs[:, 1:4, 1:4, :] * kernels).sum(axis=(1, 2)),
+                           ret[:, 2, 2, :].numpy()), 'calc error1'
+
+        assert np.allclose((imgs[:, 2:5, 0:3, :] * kernels).sum(axis=(1, 2)),
+                           ret[:, 3, 1, :].numpy()), 'calc error2'
+
+    def test_get_patch(self):
+        im = np.arange(4*5*3, dtype=np.uint8).reshape(4, 5, 3)
+
+        patches = TfrecordConverter().split_to_patch(im, [1, 2], [1, 1])
+
+        assert patches.shape == (4*3, 3, 4, 3), "invalid patch shape"
+        tmp = np.zeros((3, 4, 3))
+        tmp[1:, 1:, :] = im[0:2, 0:3, :]
+        assert (patches[0, :, :, :] == tmp).all(), "invalid patch values"
+        tmp = np.zeros((3, 4, 3))
+        tmp[0:2, 0:2, :] = im[-2:, -2:, :]
+        assert (patches[-1, :, :, :] == tmp).all(), "invalid patch values"
+
     def test_standardization(self):
 
         im = np.arange(3*4*5*3, dtype=np.uint8).reshape(3, 4, 5, 3)
         tn = tf.Variable(im)
 
-        ret = AugmentImg().standardization(tn).numpy()
+        ret = AugmentImg()._standardization(tn).numpy()
 
         max_axis = np.max(ret, axis=(1, 2, 3))
         mean_axis = np.mean(ret, axis=(1, 2, 3))
@@ -89,7 +166,7 @@ class TestTfaug(unittest.TestCase):
 
         BATCH_SIZE = 2
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
-        labels = [0] * 10 * BATCH_SIZE 
+        labels = [0] * 10 * BATCH_SIZE
 
         # test for classification
         path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
@@ -110,7 +187,6 @@ class TestTfaug(unittest.TestCase):
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
-
 
         # test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
@@ -133,9 +209,7 @@ class TestTfaug(unittest.TestCase):
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
-        
-        
-        
+
     def test_dataset_from_tfrecord_sample_ratio(self):
 
         random_crop_size = [100, 254]
@@ -154,11 +228,10 @@ class TestTfaug(unittest.TestCase):
                         'random_crop': random_crop_size,
                         'random_noise': 100,
                         'random_saturation': [0.5, 2]}
-        
-        
-        BATCH_SIZE = 2
+
+        BATCH_SIZE = 5
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
-        #test for ratio_samples
+        # test for ratio_samples
         labels = [0] * 10 * BATCH_SIZE
         path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
         TfrecordConverter().tfrecord_from_path_label(flist,
@@ -169,42 +242,44 @@ class TestTfaug(unittest.TestCase):
         TfrecordConverter().tfrecord_from_path_label(flist,
                                                      labels,
                                                      path_tfrecord_1)
-        
+
         dc = DatasetCreator(5, 10,
                             label_type='class',
                             repeat=False,
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
-                                            ratio_samples=np.array([0.1,1000],dtype=np.float32))
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+                                            ratio_samples=np.array([0.1, 1000], dtype=np.float32))
+
         img, label = next(iter(ds.take(1)))
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert all(label == 1), "sampled label is invalid"         
+        assert all(label == 1), "sampled label is invalid"
 
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
-                                            ratio_samples=np.array([1,1],dtype=np.float32))
+        ds, cnt = DatasetCreator(5, 50,
+                                 label_type='class',
+                                 repeat=False,
+                                 **DATAGEN_CONF,
+                                 training=True).dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+                                                                       ratio_samples=np.array([1, 1], dtype=np.float32))
         rep_cnt = 0
         for img, label in iter(ds):
             rep_cnt += 1
-        assert rep_cnt == 4, "repetition count is invalid"
-        assert any(label == 1) and any(label == 0), "sampled label is invalid"    
-        
-        #check for sampling ratio
+        assert rep_cnt == 2, "repetition count is invalid"
+        assert any(label == 1) and any(label == 0), "sampled label is invalid"
+
+        # check for sampling ratio
         dc = DatasetCreator(5, 10,
                             label_type='class',
                             repeat=True,
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0],[path_tfrecord_1]],
-                                            ratio_samples=np.array([1,10],dtype=np.float32))
+        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+                                            ratio_samples=np.array([1, 10], dtype=np.float32))
         ds = ds.take(100)
-        cnt_1, cnt_0 = 0,0
+        cnt_1, cnt_0 = 0, 0
         for img, label in ds:
             cnt_0 += (label.numpy() == 0).sum()
             cnt_1 += (label.numpy() == 1).sum()
-            
+
         assert 1/10 - 1/100 < cnt_0 / cnt_1 < 1/10 + 1/100, "sampling ratio is invalid"
-        
-        
-        
 
     def test_tfrecord_from_path(self):
 
@@ -360,6 +435,8 @@ class TestTfaug(unittest.TestCase):
                   'random_contrast',
                   'random_crop',
                   'random_noise',
+                  'random_blur',
+                  'random_blur_kernel',
                   'interpolation',
                   'dtype',
                   'input_shape',
@@ -388,13 +465,25 @@ class TestTfaug(unittest.TestCase):
         label = np.tile(label, (BATCH_SIZE, 1, 1, 1))
 
         cases = [
-            params(  # test num_transforms
+            params(
+                # test random_blur
+                standardize=True,
+                resize=(50, 50),
+                random_rotation=20,
+                random_blur=1,
+                random_blur_kernel=5,
+                interpolation='nearest',
+                input_shape=[BATCH_SIZE, 512, 512, 3],
+                num_transforms=5,
+                training=True),
+            params(
+                # test num_transforms
                 standardize=True,
                 resize=(300, 400),
                 random_brightness=0.5,
                 random_rotation=20,
                 interpolation='nearest',
-                input_shape=[BATCH_SIZE,512,512,3],
+                input_shape=[BATCH_SIZE, 512, 512, 3],
                 num_transforms=50,
                 training=True),
             params(  # test dtype
@@ -453,7 +542,7 @@ class TestTfaug(unittest.TestCase):
                 random_flip_left_right=True,
                 random_flip_up_down=True,
                 random_brightness=0.5,
-                random_contrast=[.1, .5],
+                random_contrast=[.5, 1.5],
                 random_crop=(256, 256),
                 interpolation='nearest',
                 training=False),
@@ -462,7 +551,7 @@ class TestTfaug(unittest.TestCase):
                 resize=(300, 400),
                 random_rotation=45,
                 random_zoom=(0.1, 0.1),
-                random_contrast=[.1, .5],
+                random_contrast=[.5, 1.5],
                 interpolation='nearest',
                 training=True),
             params(  # test random_noise
@@ -470,7 +559,7 @@ class TestTfaug(unittest.TestCase):
                 resize=(300, 400),
                 random_brightness=0.5,
                 random_hue=0.01,
-                random_contrast=[.1, .5],
+                random_contrast=[.5, 1.5],
                 random_noise=50,
                 interpolation='nearest',
                 training=True),
@@ -729,4 +818,4 @@ class TestTfaug(unittest.TestCase):
 if __name__ == '__main__':
     pass
     unittest.main()
-    # TestTfaug().test_tfrecord_from_path()
+    # TestTfaug().test_dataset_from_tfrecord_sample_ratio()

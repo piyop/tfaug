@@ -56,6 +56,7 @@ def lean_mnist():
                                           random_zoom=[0.1, 0.1],
                                           random_rotation=20,
                                           random_shear=[10, 10],
+                                          random_blur=10,
                                           training=True)
                            .dataset_from_tfrecords([DATADIR+'mnist/train.tfrecord']))
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
@@ -283,18 +284,14 @@ def download_and_convert_ADE20k(input_size):
             os.makedirs(f'{patchdir}annotations/{dirname}', exist_ok=True)
             srcimgs = glob(f'{dstdir}/images/{dirname}/ADE_*.jpg')
             for path in tqdm(srcimgs):
+                if path == 'testdata/tfaug/ADE20k/ADEChallengeData2016//images/training\\ADE_train_00000191.jpg':
+                    piyo = 0
                 im = np.array(Image.open(path))
                 lb = np.array(Image.open(os.sep.join(
                     Path(path).parts[:-3] + ('annotations', dirname, Path(path).stem+'.png'))))
-                x_borders = [size
-                             for size in range(0, im.shape[1]-input_size[0], input_size[0])]
-                y_borders = [size
-                             for size in range(0, im.shape[0]-input_size[1], input_size[1])]
 
-                img_patches = converter.get_patch(im, input_size, overlap_buffer,
-                                                  x_borders, y_borders, dtype=np.uint8)
-                lbl_pathces = converter.get_patch(lb, input_size, overlap_buffer,
-                                                  x_borders, y_borders, dtype=np.uint8)
+                img_patches = converter.split_to_patch(im, input_size, overlap_buffer, dtype=np.uint8)
+                lbl_pathces = converter.split_to_patch(lb, input_size, overlap_buffer, dtype=np.uint8)
 
                 basename = Path(path).stem
                 for no, (img_patch, lbl_patch) in enumerate(zip(img_patches, lbl_pathces)):
