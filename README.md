@@ -61,7 +61,7 @@ This package includes below 3 classes:
  * random_contrast
  * random_crop
  * random_noise
-   * add random gaussian pixcel noise
+ * random_blur
  
 # Install
 python -m pip install git+https://github.com/piyop/tfaug
