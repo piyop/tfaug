@@ -212,23 +212,62 @@ class TfrecordConverter():
         """Returns an int64_list from a bool / enum / int / uint."""
         return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-    def tfrecord_from_path_label(self, path_imgs, labels, path_out):
-        self.save_png_label_tfrecord(
-            path_imgs, path_out, lambda x: np.array(Image.open(x)), labels)
 
     def tfrecord_from_path(self, path_imgs, path_out):
         self.save_png_label_tfrecord(
             path_imgs, path_out, lambda x: np.array(Image.open(x)))
 
+    def tfrecord_from_path_label(self, path_imgs, labels, path_out):
+        """
+        generate tfrecord from image and label paths
+
+        Parameters
+        ----------
+        path_imgs : list of str
+            list of image paths 
+        labels : list of str
+            list of label paths 
+        path_out : TYPE
+            output tfrecord path.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.save_png_label_tfrecord(
+            path_imgs, path_out, lambda x: np.array(Image.open(x)), labels)
+        
+        
     def tfrecord_from_ary_label(self, ary, labels, path_out):
+        """
+        generate tfrecord from image and label arrays
+
+        Parameters
+        ----------
+        ary : np.ndarray or list of np.ndarray
+            image array
+        labels : np.ndarray or list of np.ndarray
+            for classification labels, dims of labels is 1
+            for segmentation labels, dims of labels is 4
+        path_out : TYPE
+            output tfrecord path.
+
+        Returns
+        -------
+        None.
+
+        """
         self.save_png_label_tfrecord(
             ary, path_out, lambda x: np.array(x), labels)
+
 
     def save_png_label_tfrecord(self, imgs, path_out, reader_func, labels=None):
 
         if labels is not None:
             seg_label = True if isinstance(labels[0], str) or \
-                (isinstance(labels, np.ndarray) and labels.ndim >= 3) else False
+                (isinstance(labels, np.ndarray) and labels.ndim >= 3) or \
+                (isinstance(labels, list) and isinstance(labels[0], np.ndarray)) else False
             if seg_label:
                 def label_feature(ilabel): return self._bytes_feature(
                     self.np_to_pngstr(ilabel))
@@ -250,11 +289,11 @@ class TfrecordConverter():
                     img = reader_func(img)
                     if labels is not None:
                         label = labels[i]
-                        if seg_label:
+                        if seg_label and isinstance(label, str):
                             ext = os.path.splitext(label)[1]
                             assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
                                 "file extention is imcompatible:"+label
-                            label = reader_func(label)
+                        label = reader_func(label)
                     else:
                         label = None
                     # use same image as msk

@@ -313,7 +313,7 @@ class TestTfaug(unittest.TestCase):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert (label.numpy() == clslabels[i]), 'label is changed'
 
-    def test_preproc(self):
+    def test_tfrecord_from_ary_label(self):
 
         random_crop_size = [100, 254]
         # data augmentation configurations:
@@ -326,11 +326,9 @@ class TestTfaug(unittest.TestCase):
                         'random_zoom': [0.2, 0.2],
                         'random_shear': [5, 5],
                         'random_brightness': 0.2,
-                        'random_hue': 0.01,
                         'random_contrast': [0.6, 1.4],
                         'random_crop': random_crop_size,
-                        'random_noise': 100,
-                        'random_saturation': [0.5, 2]}
+                        'random_noise': 100}
 
         BATCH_SIZE = 2
         with Image.open(DATADIR+'Lenna.png').convert('RGB') as img:
@@ -361,7 +359,32 @@ class TestTfaug(unittest.TestCase):
         assert rep_cnt == 10, "repetition count is invalid"
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
         assert img.shape[3] == 3, "data shape is invalid"
+        
+        
+        #test for segmentation        
+        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+        TfrecordConverter().tfrecord_from_ary_label(image,
+                                                    image,
+                                                    path_tfrecord)
 
+        def preproc(img, lbl): return (img, lbl[:, :, :, :3])
+
+        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                            label_type='segmentation', preproc=preproc,
+                            **DATAGEN_CONF, training=True)
+        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+
+        rep_cnt = 0
+        for img, label in iter(ds):
+            rep_cnt += 1
+
+        assert rep_cnt == 10, "repetition count is invalid"
+        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+        assert img.shape[3] == 4, "data shape is invalid"
+        assert label.shape[3] == 3, "data shape is invalid"
+        
+        
+        
     def test_tfdata_vertual(self):
 
         BATCH_SIZE = 10
@@ -817,5 +840,5 @@ class TestTfaug(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    unittest.main()
-    # TestTfaug().test_dataset_from_tfrecord_sample_ratio()
+    # unittest.main()
+    TestTfaug().test_tfrecord_from_ary_label()
