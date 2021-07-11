@@ -4,7 +4,8 @@
 @author: t.okuda
 """
 
-import math, sys
+import math
+import sys
 import io
 import os
 import json
@@ -212,7 +213,6 @@ class TfrecordConverter():
         """Returns an int64_list from a bool / enum / int / uint."""
         return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-
     def tfrecord_from_path(self, path_imgs, path_out):
         self.save_png_label_tfrecord(
             path_imgs, path_out, lambda x: np.array(Image.open(x)))
@@ -237,8 +237,7 @@ class TfrecordConverter():
         """
         self.save_png_label_tfrecord(
             path_imgs, path_out, lambda x: np.array(Image.open(x)), labels)
-        
-        
+
     def tfrecord_from_ary_label(self, ary, labels, path_out):
         """
         generate tfrecord from image and label arrays
@@ -260,7 +259,6 @@ class TfrecordConverter():
         """
         self.save_png_label_tfrecord(
             ary, path_out, lambda x: np.array(x), labels)
-
 
     def save_png_label_tfrecord(self, imgs, path_out, reader_func, labels=None):
 
@@ -289,11 +287,12 @@ class TfrecordConverter():
                     img = reader_func(img)
                     if labels is not None:
                         label = labels[i]
-                        if seg_label and isinstance(label, str):
-                            ext = os.path.splitext(label)[1]
-                            assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
-                                "file extention is imcompatible:"+label
-                        label = reader_func(label)
+                        if seg_label:
+                            if isinstance(labels[0], str):
+                                ext = os.path.splitext(label)[1]
+                                assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
+                                    "file extention is imcompatible:"+label
+                            label = reader_func(label)
                     else:
                         label = None
                     # use same image as msk
@@ -309,6 +308,10 @@ class TfrecordConverter():
         else:
             patch_x, patch_y = patch_size, patch_size
         return patch_x, patch_y
+
+    def get_patch_axis(self, len_x, patch_x, len_y, patch_y):
+        return ([x for x in range(0, len_x, patch_x)],
+                [y for y in range(0, len_y, patch_y)])
 
     def split_to_patch(self, npimg, patch_size, buffer_size, dtype=np.uint8):
         """
@@ -334,8 +337,8 @@ class TfrecordConverter():
 
         patch_x, patch_y = self._check_patch_axis(patch_size)
 
-        xx = [x for x in range(0, npimg.shape[1], patch_x)]
-        yy = [y for y in range(0, npimg.shape[0], patch_y)]
+        xx, yy = self.get_patch_axis(
+            npimg.shape[1], patch_x, npimg.shape[0], patch_y)
 
         return self.get_patch(npimg, patch_size, buffer_size, xx, yy, dtype=np.uint8)
 
@@ -389,8 +392,8 @@ class TfrecordConverter():
         allnp = np.array(all_image, dtype=dtype)
         del all_image, padded
         if org_ndim == 2:
-            allnp = allnp[:,:,:,0]
-            
+            allnp = allnp[:, :, :, 0]
+
         return allnp
 
 
@@ -423,7 +426,7 @@ class AugmentImg():
                  clslabel: bool = False,
                  dtype: type = None,
                  input_shape=None,
-                 num_transforms=10000,
+                 num_transforms=100000,
                  training: bool = False) \
             -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]:
         """
@@ -472,12 +475,14 @@ class AugmentImg():
             [-max_delta, max_delta).
              The default is None.
         random_saturation : Tuple[float, float], optional
-            randomely adjust image brightness range between [lower, upper].
+            randomely adjust image brightness range between [lower, upper).
             The default is None.
         random_hue : float, optional
             randomely adjust hue of RGB images between [-random_hue, random_hue]
         random_contrast : Tuple[float, float], optional
-            randomely adjust contrast of RGB images between [random_contrast[0], random_contrast[1]]
+            randomely adjust contrast of RGB images by contrast factor 
+            which lies between [random_contrast[0], random_contrast[1])
+            result image is calculated by (x - mean) * contrast_factor + mean
         random_crop : int, optional
             randomely crop image with size [x,y] = [random_crop_height, random_crop_width].
             The default is None.
@@ -579,7 +584,7 @@ class AugmentImg():
             augmented images and labels.
 
         """
-        
+
         return self._augmentation(image, label, self._training)
 
     def _get_transform(self, imgshape):
@@ -809,10 +814,10 @@ class AugmentImg():
         padded = tf.pad(imgs,
                         [[0, 0], [kh//2, kh//2], [kw//2, kw//2], [0, 0]],
                         "SYMMETRIC")
-        
+
         img_t = tf.transpose(padded, [1, 2, 0, 3])
-        img_t = tf.reshape(img_t, (1, tf.shape(padded)[1], 
-                                   tf.shape(padded)[2], 
+        img_t = tf.reshape(img_t, (1, tf.shape(padded)[1],
+                                   tf.shape(padded)[2],
                                    tf.shape(padded)[0]*tf.shape(padded)[3]))
         img_t = tf.cast(img_t, dtype=kernels.dtype)
 
@@ -820,8 +825,8 @@ class AugmentImg():
                                        filter=kernel_t,
                                        strides=[1, 1, 1, 1],
                                        padding='VALID')
-        cnved = tf.reshape(cnved, [tf.shape(imgs)[1], 
-                                   tf.shape(imgs)[2], 
+        cnved = tf.reshape(cnved, [tf.shape(imgs)[1],
+                                   tf.shape(imgs)[2],
                                    tf.shape(imgs)[0],
                                    tf.shape(imgs)[3]])
         return tf.transpose(cnved, [2, 0, 1, 3])

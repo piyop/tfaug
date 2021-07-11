@@ -11,7 +11,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from collections import namedtuple
-from tqdm import tqdm
 
 import tensorflow_addons as tfa
 import tensorflow as tf
@@ -23,8 +22,9 @@ from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
 DATADIR = r'testdata\tfaug'+os.sep
 
 
-class TestTfaug(unittest.TestCase):
-
+class Testtfaug(unittest.TestCase):
+    
+    
     def test_add_blur(self):
 
         imgs = np.random.rand(2*5*4*3).reshape(2, 5, 4, 3) * 255
@@ -840,5 +840,5 @@ class TestTfaug(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    # unittest.main()
-    TestTfaug().test_tfrecord_from_ary_label()
+    unittest.main()
+    # TestTfaug().test_tfrecord_from_ary_label()
