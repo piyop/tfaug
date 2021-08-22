@@ -51,7 +51,6 @@ def lean_mnist():
     # create training and validation dataset using tfaug:
     ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                           batch_size=batch_size,
-                                          label_type='class',
                                           repeat=True,
                                           random_zoom=[0.1, 0.1],
                                           random_rotation=20,
@@ -61,11 +60,9 @@ def lean_mnist():
                            .dataset_from_tfrecords([DATADIR+'mnist/train.tfrecord']))
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                           batch_size=batch_size,
-                                          label_type='class',
                                           repeat=True,
                                           training=False)
                            .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
-
 
     # constant reguralization
     ds_train = ds_train.map(lambda x, y: (x/255, y))
@@ -97,26 +94,29 @@ def lean_mnist():
 
 def learn_ade20k():
 
-    input_size = [256, 256]  # cropped input image size
+    crop_size = [256, 256]  # cropped input image size
+    # original input image size
+    input_size = [crop_size[0]*1.5, crop_size[1]*1.5]
     batch_size = 5
 
     # donwload
-    download_and_convert_ADE20k(input_size)
+    download_and_convert_ADE20k(crop_size)
 
     # define training and validation dataset using tfaug:
     tfrecords_train = glob(
         DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/training_*.tfrecords')
     ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                           batch_size=batch_size,
-                                          label_type='segmentation',
                                           repeat=True,
                                           standardize=True,
                                           random_zoom=[0.1, 0.1],
                                           random_rotation=10,
                                           random_shear=[10, 10],
-                                          random_crop=input_size,
+                                          random_crop=crop_size,
                                           dtype=tf.float16,
-                                          input_shape=[batch_size]+input_size+[3],#batch, y, x, channel
+                                          # batch, y, x, channel
+                                          input_shape=[
+                                              batch_size]+input_size+[3],
                                           training=True)
                            .dataset_from_tfrecords(tfrecords_train))
 
@@ -124,17 +124,15 @@ def learn_ade20k():
         DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_*.tfrecords')
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                           batch_size=batch_size,
-                                          label_type='segmentation',
                                           repeat=True,
                                           standardize=True,
-                                          random_crop=input_size,
+                                          random_crop=crop_size,
                                           dtype=tf.float16,
                                           training=False)
                            .dataset_from_tfrecords(tfrecords_valid))
 
-
     # define model
-    model = def_unet(tuple(input_size+[3]), 151)  # 150class + padding area
+    model = def_unet(tuple(crop_size+[3]), 151)  # 150class + padding area
 
     model.compile(optimizer=tf.keras.optimizers.Adam(0.002),
                   loss=tf.keras.losses.SparseCategoricalCrossentropy(
@@ -273,7 +271,7 @@ def download_and_convert_ADE20k(input_size):
     converter = TfrecordConverter()
 
     patchdir = dstdir+'patch/'
-    if len(glob(patchdir+'images/validation/ADE_val_*_no*.jpg')) != 2760:
+    if len(glob(patchdir+'images/*/ADE_*_no*.jpg')) != 64563:
         print('splitting imgs to patch...', flush=True)
 
         # split images into patch
@@ -284,14 +282,14 @@ def download_and_convert_ADE20k(input_size):
             os.makedirs(f'{patchdir}annotations/{dirname}', exist_ok=True)
             srcimgs = glob(f'{dstdir}/images/{dirname}/ADE_*.jpg')
             for path in tqdm(srcimgs):
-                if path == 'testdata/tfaug/ADE20k/ADEChallengeData2016//images/training\\ADE_train_00000191.jpg':
-                    piyo = 0
                 im = np.array(Image.open(path))
                 lb = np.array(Image.open(os.sep.join(
                     Path(path).parts[:-3] + ('annotations', dirname, Path(path).stem+'.png'))))
 
-                img_patches = converter.split_to_patch(im, input_size, overlap_buffer, dtype=np.uint8)
-                lbl_pathces = converter.split_to_patch(lb, input_size, overlap_buffer, dtype=np.uint8)
+                img_patches = converter.split_to_patch(
+                    im, input_size, overlap_buffer, dtype=np.uint8)
+                lbl_pathces = converter.split_to_patch(
+                    lb, input_size, overlap_buffer, dtype=np.uint8)
 
                 basename = Path(path).stem
                 for no, (img_patch, lbl_patch) in enumerate(zip(img_patches, lbl_pathces)):
@@ -301,7 +299,7 @@ def download_and_convert_ADE20k(input_size):
                         f'{patchdir}annotations/{dirname}/{basename}_no{no}.png')
 
     image_per_shards = 1000
-    if len(glob(dstdir+'tfrecord/*_*.tfrecords')) != 30:
+    if len(glob(dstdir+'tfrecord/*_*.tfrecords')) != 101:
         print('convert ADE20k to tfrecord', flush=True)
         os.makedirs(dstdir+'tfrecord', exist_ok=True)
 
@@ -310,16 +308,15 @@ def download_and_convert_ADE20k(input_size):
             # shuffle image order
             random.shuffle(imgs)
 
-            # write tfrecords
-            for sti in tqdm(range(math.ceil(len(imgs)/image_per_shards))):
-                path_tfrecord = dstdir+f'tfrecord/{dirname}_{sti}.tfrecords'
-                path_labels = [os.sep.join(
-                    Path(path).parts[:-3] + ('annotations', dirname, Path(path).stem+'.png'))
-                    for path
-                    in imgs[sti:sti+image_per_shards]]
-                converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
-                                                   path_labels,
-                                                   path_tfrecord)
+            path_labels = [os.sep.join(
+                Path(path).parts[:-3] + ('annotations', dirname, Path(path).stem+'.png'))
+                for path in imgs]
+
+            converter.tfrecord_from_path_label(imgs,
+                                               path_labels,
+                                               dstdir +
+                                               f'tfrecord/{dirname}.tfrecords',
+                                               image_per_shards)
 
     path_tfrecord = DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_1.tfrecords'
     # check converted tfrecord

@@ -11,6 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from collections import namedtuple
+from tqdm import tqdm
+from glob import glob
 
 import tensorflow_addons as tfa
 import tensorflow as tf
@@ -22,15 +24,14 @@ from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
 DATADIR = r'testdata\tfaug'+os.sep
 
 
-class Testtfaug(unittest.TestCase):
-    
-    
+class TestTfaug(unittest.TestCase):
+
     def test_add_blur(self):
 
         imgs = np.random.rand(2*5*4*3).reshape(2, 5, 4, 3) * 255
         sigmas = (1.0, 0.5)
         kernel_size = 3
-        
+
         plt.imshow(imgs[1].astype(np.int8))
 
         padimg = np.pad(imgs, [[0, 0], [1, 1], [1, 1],
@@ -106,15 +107,73 @@ class Testtfaug(unittest.TestCase):
 
         im = np.arange(3*4*5*3, dtype=np.uint8).reshape(3, 4, 5, 3)
         tn = tf.Variable(im)
+        
+        ret = AugmentImg()._standardization(tn, 3).numpy()
 
-        ret = AugmentImg()._standardization(tn).numpy()
-
-        max_axis = np.max(ret, axis=(1, 2, 3))
+        # max_axis = np.max(ret, axis=(1, 2, 3))
         mean_axis = np.mean(ret, axis=(1, 2, 3))
+        std_axis = np.std(ret, axis=(1,2,3))
 
         assert np.allclose(mean_axis, 0), 'standardization failed'
-        assert np.allclose(max_axis, 0.5), 'standardization failed'
+        # assert np.allclose(max_axis, 0.5), 'standardization failed'
+        assert np.allclose(std_axis, 1), 'standardization failed'
 
+    def test_tf_function(self):
+
+        BATCH_SIZE = 5
+        # data augmentation configurations:
+        DATAGEN_CONF = {'standardize': False,
+                        'resize': [100,100],
+                        # 'random_rotation': 5,
+                        'random_flip_left_right': True,
+                        'random_flip_up_down': False,
+                        # 'random_shift': [25, 25],
+                        'random_zoom': [0.2, 0.2],
+                        # 'random_shear': [5, 5],
+                        # 'random_brightness': 0.2,
+                        # 'random_hue': 0.00001,
+                        'random_contrast': [0.6, 1.4],
+                        'random_crop': None,  # what to set random_crop
+                        'random_noise': 5,
+                        # 'random_saturation': [0.5, 1.5],
+                        'input_shape':[BATCH_SIZE, 512, 512, 3],
+                        'num_transforms':10}
+
+        flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
+        # test for ratio_samples
+        labels = [0] * 10 * BATCH_SIZE
+        
+        dc = DatasetCreator(BATCH_SIZE,
+                            BATCH_SIZE,
+                            **DATAGEN_CONF,
+                            training=True)
+        ds = dc.dataset_from_path(flist, labels)            
+                    
+        taked = iter(ds.take(10))
+        
+        # img, lbl = next(iter(ds.take(10)))
+
+        @tf.function
+        def one_step():
+            img, lbl = next(taked)
+            # print('type:', img, 'imgshape:', img.shape, 'lblshape:', lbl.shape)
+            print('imgshape:', img.shape, 'lblshape:', lbl.shape)
+            # img = tf.ensure_shape(img, (BATCH_SIZE, 512, 512, 3))
+            # print('after_ensure imgshape:', img.shape, 'lblshape:', lbl.shape)
+
+            assert img.shape[0] == BATCH_SIZE, 'invalid batch size'
+            return img, lbl
+
+        img, lbl = one_step()
+        
+        zipped = zip(img, lbl)
+        piyo0, piyo1 = next(zipped)
+
+        # num_batch = 1
+        # path_fig = DATADIR+'test_tf_function.png'
+        tool.plot_dsresult(((img, lbl),), BATCH_SIZE, 1,
+                           DATADIR+'test_tf_function.png')
+        
     def test_dataset_from_path(self):
 
         # data augmentation configurations:
@@ -143,7 +202,7 @@ class Testtfaug(unittest.TestCase):
             dataset_from_path(flist, labels)
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
-                           DATADIR+'test_ds_creator.png')
+                           DATADIR+'test_dataset_from_path.png')
 
     def test_dataset_from_tfrecord(self):
 
@@ -273,13 +332,15 @@ class Testtfaug(unittest.TestCase):
                             **DATAGEN_CONF,  training=True)
         ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
                                             ratio_samples=np.array([1, 10], dtype=np.float32))
-        ds = ds.take(100)
+        ds = ds.take(200)
         cnt_1, cnt_0 = 0, 0
         for img, label in ds:
             cnt_0 += (label.numpy() == 0).sum()
             cnt_1 += (label.numpy() == 1).sum()
 
-        assert 1/10 - 1/100 < cnt_0 / cnt_1 < 1/10 + 1/100, "sampling ratio is invalid"
+        assert 1/10 - 1/100 < cnt_0 / cnt_1 < 1/10 + 1/100,\
+            "sampling ratio is invalid. this happen randomely. please retry:"\
+                + str(cnt_0/cnt_1)
 
     def test_tfrecord_from_path(self):
 
@@ -312,6 +373,56 @@ class Testtfaug(unittest.TestCase):
         for i, (img, label) in enumerate(ds):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert (label.numpy() == clslabels[i]), 'label is changed'
+
+    def test_sharded_tfrecord_from_path(self):
+
+        flist_imgs = [DATADIR+'Lenna.png'] * 10
+        flist_seglabels = flist_imgs.copy()
+        img_org = np.array(Image.open(flist_imgs[0]))
+        clslabels = list(range(10))
+
+        path_tfrecord = DATADIR+'test_shards_from_path.tfrecord'
+        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+                                                     flist_seglabels,
+                                                     path_tfrecord,
+                                                     image_per_shard=3)
+
+        path_tfrecords = glob(DATADIR+'test_shards_from_path_?.tfrecord')
+        assert len(path_tfrecords) == 4, 'num of shards is invalid'
+
+        # check segmentation label
+        dc = DatasetCreator(1, 1, label_type='segmentation', training=True)
+        ds, imgcnt = dc.dataset_from_tfrecords(path_tfrecords)
+
+        for i, (img, label) in enumerate(ds):
+            assert (img == img_org).numpy().all(), 'image is changed'
+            assert (label == img_org).numpy().all(), 'labels is changed'
+
+        path_tfrecord = DATADIR+'test_shards_from_path_seg.tfrecord'
+        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+                                                     clslabels,
+                                                     path_tfrecord,
+                                                     image_per_shard=2)
+
+        path_tfrecords = glob(DATADIR+'test_shards_from_path_seg_?.tfrecord')
+        assert len(path_tfrecords) == 5, 'num of shards is invalid'
+
+        # check class label
+        dc = DatasetCreator(False, 1, label_type='class', training=True)
+        ds, datacnt = dc.dataset_from_tfrecords(path_tfrecords)
+
+        list_label = []
+        for i, (img, label) in enumerate(ds):
+            list_label.append(label.numpy())
+            assert (img == img_org).numpy().all(), 'image was changed'
+
+        label_all = np.concatenate(sorted(list_label))
+        assert all(label_all == clslabels), 'label was changed'
+        
+        
+        #check tfrecord_from_ary_label()
+        
+        
 
     def test_tfrecord_from_ary_label(self):
 
@@ -359,9 +470,8 @@ class Testtfaug(unittest.TestCase):
         assert rep_cnt == 10, "repetition count is invalid"
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
         assert img.shape[3] == 3, "data shape is invalid"
-        
-        
-        #test for segmentation        
+
+        #test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
         TfrecordConverter().tfrecord_from_ary_label(image,
                                                     image,
@@ -382,9 +492,26 @@ class Testtfaug(unittest.TestCase):
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
         assert img.shape[3] == 4, "data shape is invalid"
         assert label.shape[3] == 3, "data shape is invalid"
-        
-        
-        
+
+        #test for nothing labels
+        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+        TfrecordConverter().tfrecord_from_ary_label(image,
+                                                    None,
+                                                    path_tfrecord)
+
+        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                            label_type='segmentation',
+                            **DATAGEN_CONF, training=True)
+        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+
+        rep_cnt = 0
+        for img in iter(ds):
+            rep_cnt += 1
+
+        assert rep_cnt == 10, "repetition count is invalid"
+        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+        assert img.shape[3] == 4, "data shape is invalid"
+
     def test_tfdata_vertual(self):
 
         BATCH_SIZE = 10
@@ -444,6 +571,7 @@ class Testtfaug(unittest.TestCase):
         None.
 
         """
+        
         fields = ['standardize',
                   'resize',
                   'random_rotation',
@@ -465,10 +593,9 @@ class Testtfaug(unittest.TestCase):
                   'input_shape',
                   'num_transforms',
                   'training']
-        params = namedtuple('params', ','.join(fields)
-                            # ,defaults=(None,)*len(fields)
-                            )
+        params = namedtuple('params', ','.join(fields))
         params.__new__.__defaults__ = (None,)*len(fields)
+        
 
         # image and lbl which you want to test
         testimg = DATADIR+'Lenna.png'
@@ -487,135 +614,177 @@ class Testtfaug(unittest.TestCase):
             label = label[:, :, np.newaxis]
         label = np.tile(label, (BATCH_SIZE, 1, 1, 1))
 
-        cases = [
-            params(
-                # test random_blur
-                standardize=True,
-                resize=(50, 50),
-                random_rotation=20,
-                random_blur=1,
-                random_blur_kernel=5,
-                interpolation='nearest',
-                input_shape=[BATCH_SIZE, 512, 512, 3],
-                num_transforms=5,
-                training=True),
-            params(
-                # test num_transforms
-                standardize=True,
-                resize=(300, 400),
-                random_brightness=0.5,
-                random_rotation=20,
-                interpolation='nearest',
-                input_shape=[BATCH_SIZE, 512, 512, 3],
-                num_transforms=50,
-                training=True),
-            params(  # test dtype
-                standardize=True,
-                resize=(300, 400),
-                random_brightness=0.5,
-                random_hue=0.01,
-                random_contrast=[.1, .5],
-                random_noise=100,
-                interpolation='nearest',
-                dtype=tf.float16,
-                training=True),
-            params(  # test y_shift
-                standardize=True,
-                random_rotation=0,
-                random_flip_left_right=True,
-                random_flip_up_down=False,
-                random_shift=[256, 0],
-                random_brightness=False,
-                interpolation='nearest',
-                training=True),
-            params(  # test x_shift and rotation
-                random_rotation=45,
-                random_flip_left_right=False,
-                random_flip_up_down=True,
-                random_shift=(0, 256),
-                random_brightness=False,
-                random_saturation=(0.5, 2),
-                interpolation='nearest',
-                training=True),
-            params(  # test crop and zoom
-                standardize=True,
-                random_rotation=45,
-                random_flip_left_right=False,
-                random_flip_up_down=False,
-                random_shift=None,
-                random_zoom=(0.8, 0.1),
-                random_crop=(256, 512),
-                interpolation='bilinear',
-                training=True),
-            params(  # test shear and color
-                standardize=True,
-                random_flip_left_right=False,
-                random_flip_up_down=False,
-                random_zoom=[0.1, 0.1],
-                random_shear=(10, 10),
-                random_brightness=0.5,
-                random_saturation=[0.5, 2],
-                random_hue=0.01,
-                random_contrast=[.1, .5],
-                interpolation='bilinear',
-                training=True),
-            params(  # test train = False
-                standardize=True,
-                random_rotation=45,
-                random_flip_left_right=True,
-                random_flip_up_down=True,
-                random_brightness=0.5,
-                random_contrast=[.5, 1.5],
-                random_crop=(256, 256),
-                interpolation='nearest',
-                training=False),
-            params(  # test resize
-                standardize=True,
-                resize=(300, 400),
-                random_rotation=45,
-                random_zoom=(0.1, 0.1),
-                random_contrast=[.5, 1.5],
-                interpolation='nearest',
-                training=True),
-            params(  # test random_noise
-                standardize=True,
-                resize=(300, 400),
-                random_brightness=0.5,
-                random_hue=0.01,
-                random_contrast=[.5, 1.5],
-                random_noise=50,
-                interpolation='nearest',
-                training=True),
+        cases = [            
+            ('test dtype',
+             params(standardize=True,
+                    resize=(300, 400),
+                    random_brightness=0.5,
+                    random_hue=0.01,
+                    random_contrast=[.1, .5],
+                    random_noise=100,
+                    interpolation='nearest',
+                    dtype=tf.float16,
+                    training=True)),
+            ('test random_blur',
+             params(standardize=True,
+                    resize=(50, 50),
+                    random_blur=1,
+                    random_blur_kernel=5,
+                    interpolation='nearest',
+                    input_shape=[BATCH_SIZE, 512, 512, 3],
+                    num_transforms=5,
+                    training=True)),
+            ('test random_hue1',
+             params(random_hue=0.01,
+                    interpolation='nearest',
+                    input_shape=[BATCH_SIZE, 512, 512, 3],
+                    training=True)),
+            ('test random_hue2',
+             params(random_hue=0.5,
+                    interpolation='nearest',
+                    input_shape=[BATCH_SIZE, 512, 512, 3],
+                    training=True)),
+            ('test num_transforms',
+             params(standardize=True,
+                    resize=(300, 400),
+                    random_brightness=0.5,
+                    random_rotation=20,
+                    interpolation='nearest',
+                    input_shape=[BATCH_SIZE, 512, 512, 3],
+                    num_transforms=50,
+                    training=True)),
+            ('test x_shift and rotation',
+             params(random_rotation=45,
+                    random_shift=(0, 256),
+                    interpolation='nearest',
+                    training=True)),
+            ('test crop and zoom',
+             params(random_rotation=45,
+                    random_flip_left_right=False,
+                    random_flip_up_down=False,
+                    random_shift=None,
+                    random_zoom=(0.8, 0.1),
+                    random_crop=(256, 512),
+                    interpolation='bilinear',
+                    training=True)),
+            ('test shear and color',
+             params(standardize=True,
+                    random_flip_left_right=False,
+                    random_flip_up_down=False,
+                    random_zoom=[0.1, 0.1],
+                    random_shear=(10, 10),
+                    random_brightness=0.5,
+                    random_saturation=[0.5, 1.5],
+                    random_hue=0.001,
+                    random_contrast=[.1, .5],
+                    interpolation='bilinear',
+                    training=True)),
+            ('test train = False',
+             params(standardize=True,
+                    random_rotation=45,
+                    random_flip_left_right=True,
+                    random_flip_up_down=True,
+                    random_brightness=0.5,
+                    random_contrast=[.5, 1.5],
+                    random_crop=(256, 256),
+                    interpolation='nearest',
+                    training=False)),
+            ('test resize',
+             params(resize=(300, 500),
+                    training=True)),
+            ('test resize and zoom',
+             params(resize=(256, 512),
+                    random_zoom=(0, 0.5),
+                    interpolation='nearest',
+                    training=True)),
+            ('test resize and rotation',
+             params(resize=(900, 400),
+                    random_rotation=45,
+                    interpolation='nearest',
+                    training=True)),
+            ('test rotation',
+             params(random_rotation=45,
+                    training=True)),
+            ('test random_flip_left_right',
+             params(random_flip_left_right=True,
+                    training=True)),
+            ('test random_flip_up_down',
+             params(random_flip_up_down=True,
+                    training=True)),
+            ('test y_shift',
+             params(random_shift=[256, 0],
+                    random_brightness=False,
+                    training=True)),
+            ('test zoom',
+             params(random_zoom=(0.5, 0.1),
+                    training=True)),
+            
+            ('test random_contrast',
+             params(random_contrast=[1.4,2],
+                    training=True)),
+            ('test shear',
+             params(random_shear=(10, 10),
+                    training=True)),
+            ('test random_brightness',
+             params(random_brightness=0.5,
+                    training=True)),
+            ('test random_noise',
+             params(random_noise=50,
+                    interpolation='nearest',
+                    training=True)),
         ]
 
+                  # 'resize',
+                  # 'random_rotation',
+                  # 'random_flip_left_right',
+                  # 'random_flip_up_down',
+                  # 'random_shift',
+                  # 'random_zoom',
+                  # 'random_shear',
+                  # 'random_brightness',
+                  # 'random_saturation',
+                  # 'random_hue',
+                  # 'random_contrast',
+                  # 'random_crop',
+                  # 'random_noise',
+                  # 'random_blur',
+                  # 'random_blur_kernel',
+                  
         for no, case in enumerate(cases):
             with self.subTest(case=case):
                 print(case)
 
-                func = AugmentImg(**case._asdict())
+                func = AugmentImg(**case[1]._asdict())
 
                 img, lbl = func(image, label)
 
-                if case.resize and not case.random_crop:
-                    assert img.shape == [BATCH_SIZE] + list(case.resize) + [3]
-                    assert lbl.shape == [BATCH_SIZE] + list(case.resize) + [3]
-                elif case.random_crop:
+                if case[1].resize and not case[1].random_crop:
                     assert img.shape == [BATCH_SIZE] + \
-                        list(case.random_crop) + [3]
+                        list(case[1].resize) + [3]
                     assert lbl.shape == [BATCH_SIZE] + \
-                        list(case.random_crop) + [3]
+                        list(case[1].resize) + [3]
+                elif case[1].random_crop:
+                    assert img.shape == [BATCH_SIZE] + \
+                        list(case[1].random_crop) + [3]
+                    assert lbl.shape == [BATCH_SIZE] + \
+                        list(case[1].random_crop) + [3]
                 else:
                     assert img.shape == image.shape
                     assert lbl.shape == label.shape
 
                 # adjust value range to display images : canceling standardize effect.
-                img = self.adjust_img_range(img.numpy())
-                lbl = self.adjust_img_range(lbl.numpy())
+                # this cause color change
+                img = img.numpy()
+                lbl = lbl.numpy()
+                if case[1].standardize:
+                    img = self.adjust_img_range(img)
+                    lbl = self.adjust_img_range(lbl)
 
-                tool.plot_dsresult(zip(zip(img, lbl), (None,)*len(img)), 2,
-                                   BATCH_SIZE, DATADIR+'test_augmentation_caseno'+str(no)+'.png')
+                tool.plot_dsresult(((img, lbl),), BATCH_SIZE,
+                                   1, DATADIR+case[0]+'.png', 
+                                   plot_label=True)
 
-    def test_valid(self):
+    def test_central_crop(self):
 
         # image and lbl which you want to test
         testimg = DATADIR+'Lenna.png'
@@ -637,13 +806,13 @@ class Testtfaug(unittest.TestCase):
         training = False
 
         func = AugmentImg(standardize=False,
-                          random_flip_left_right=True,
-                          random_flip_up_down=True,
-                          random_shift=(0.1, 0.1),
-                          random_zoom=(0.1, 0.1),
+                          random_flip_left_right=False,
+                          random_flip_up_down=False,
+                          random_shift=None,
+                          random_zoom=None,
                           random_brightness=False,
                           random_saturation=False,
-                          random_crop=[256, 128],
+                          central_crop=[256, 128],
                           training=training)
 
         img, lbl = func(image, label)
@@ -841,4 +1010,5 @@ class Testtfaug(unittest.TestCase):
 if __name__ == '__main__':
     pass
     unittest.main()
-    # TestTfaug().test_tfrecord_from_ary_label()
+    # TestTfaug().test_standardization()
+    # TestTfaug().test_add_blur()

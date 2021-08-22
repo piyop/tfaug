@@ -5,29 +5,37 @@ Created on Thu Nov 19 22:41:06 2020
 @author: okuda
 """
 
-import io
-from PIL import Image
-import numpy as np
+import os
 import matplotlib.pyplot as plt
+import numpy as np
 
 import tensorflow as tf
 
 
-tfexample_format = {"image": tf.io.FixedLenFeature([], dtype=tf.string),
-                    "msk": tf.io.FixedLenFeature([], dtype=tf.string)}
+def plot_dsresult(dataset, batch_size, num_batch, path_fig, plot_label=False):
 
-
-def plot_dsresult(dataset, batch_size, num_batch, path_fig):
-
-    fig, axs = plt.subplots(num_batch, batch_size,
-                            figsize=(batch_size, num_batch), dpi=200)
-    fig.suptitle(path_fig)
-    for i, (im, lb) in enumerate(dataset):
+    num_row = num_batch * 2 if plot_label else num_batch
+    fig, axs = plt.subplots(num_row, batch_size,
+                            figsize=(batch_size, num_row), dpi=200)
+    if num_row == 1:
+        axs = np.expand_dims(axs, 0)
+    if batch_size == 1:
+        axs = np.expand_dims(axs, 1)
+    fig.suptitle(os.path.basename(path_fig))
+    for n_batch, (ims, lbs) in enumerate(dataset):        
+        pltrow = n_batch
+        if plot_label:
+            pltrow = pltrow*2
 
         for batch in range(batch_size):
-            axs[i, batch].axis("off")
-            axs[i, batch].imshow(im[0])
-
+            if plot_label:
+                axs[pltrow+1, batch].axis("off")
+                axs[pltrow+1, batch].imshow(lbs[batch])
+                
+            axs[pltrow, batch].axis("off")
+            axs[pltrow, batch].imshow(ims[batch])
+            
+                
     plt.savefig(path_fig)
 
 
@@ -55,26 +63,3 @@ def new_py_function(func, inp, Tout, name=None):
                                      expand_composites=True)
     out = tf.nest.pack_sequence_as(spec_out, flat_out, expand_composites=True)
     return out
-
-
-def np_to_pngstr(npary):
-    with io.BytesIO() as output:
-        Image.fromarray(npary).save(output, format="PNG")
-        stimg = output.getvalue()
-    return stimg
-
-
-def _bytes_feature(value):
-    """Returns a bytes_list from a string / byte."""
-    if isinstance(value, type(tf.constant(0))):
-        # BytesList won't unpack a string from an EagerTensor.
-        value = value.numpy()
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-
-
-def read_imgs(path_imgs, mode='RGB'):
-    ret_imgs = []
-    for path_img in path_imgs:
-        with Image.open(path_img) as im:
-            ret_imgs.append(np.array(im.convert(mode)))
-    return ret_imgs
