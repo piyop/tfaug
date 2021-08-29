@@ -88,7 +88,7 @@ def lean_mnist():
 
     # evaluation result
     model.evaluate(ds_valid,
-                   steps=x_test.shape[0]//batch_size,
+                   steps=valid_cnt//batch_size,
                    verbose=2)
 
 
@@ -96,12 +96,18 @@ def learn_ade20k():
 
     crop_size = [256, 256]  # cropped input image size
     # original input image size
-    input_size = [crop_size[0]*1.5, crop_size[1]*1.5]
     batch_size = 5
 
     # donwload
-    download_and_convert_ADE20k(crop_size)
+    overlap_buffer = 256 // 4
+    download_and_convert_ADE20k(crop_size, overlap_buffer)
 
+    # input batch, y, x, channel
+    input_shape = [batch_size, 
+                  crop_size[0]+2*overlap_buffer,
+                  crop_size[1]+2*overlap_buffer, 
+                  3]
+    
     # define training and validation dataset using tfaug:
     tfrecords_train = glob(
         DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/training_*.tfrecords')
@@ -114,9 +120,7 @@ def learn_ade20k():
                                           random_shear=[10, 10],
                                           random_crop=crop_size,
                                           dtype=tf.float16,
-                                          # batch, y, x, channel
-                                          input_shape=[
-                                              batch_size]+input_size+[3],
+                                          input_shape=input_shape,
                                           training=True)
                            .dataset_from_tfrecords(tfrecords_train))
 
@@ -232,7 +236,7 @@ def upsample(filters):
     return upsample
 
 
-def download_and_convert_ADE20k(input_size):
+def download_and_convert_ADE20k(input_size, overlap_buffer):
     """
     Donload and Converts the ADE20k dataset into tfrecord format.
     """
@@ -275,7 +279,7 @@ def download_and_convert_ADE20k(input_size):
         print('splitting imgs to patch...', flush=True)
 
         # split images into patch
-        overlap_buffer = [input_size[0]//4, input_size[1]//4]
+        overlap_buffer = [overlap_buffer, overlap_buffer]
         for dirname in ['training', 'validation']:
             print('convert', dirname, 'into patch')
             os.makedirs(f'{patchdir}images/{dirname}', exist_ok=True)
