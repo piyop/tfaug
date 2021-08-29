@@ -63,6 +63,8 @@ This package includes below 3 classes:
  * random_noise
  * random_blur
  
+ The Document is in [docs/tfaug.md](https://github.com/piyop/tfaug/tree/master/docs/tfaug.md)
+ 
 # Install
 python -m pip install git+https://github.com/piyop/tfaug
 
@@ -101,34 +103,23 @@ TfrecordConverter().tfrecord_from_ary_label(
 
 ### Create Dataset by DatasetCreator()
 Create and apply augmentation to training and validation Tfrecords by DatasetCreator.
-For the classification problem, use `label_type = 'class'` for DatasetCreator constractor.
 Set image augmentation params to DatasetCreator constractor.
 ```Python
 batch_size, shuffle_buffer = 25, 25
 # create training and validation dataset using tfaug:
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
-                                      label_type='class',
                                       repeat=True,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=20,
-                                      random_shear=[10, 10],
                                       training=True)
                        .dataset_from_tfrecords([DATADIR+'mnist/train.tfrecord']))
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
-                                      label_type='class',
                                       repeat=True,
                                       training=False)
                        .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
-```
-
-Add constant reguralization to training and validation datasets.
-```Python
-# constant reguralization
-ds_train = ds_train.map(lambda x, y: (x/255, y))
-ds_train = ds_valid.map(lambda x, y: (x/255, y))
 ```
 
 ### Define and Learn Model Using Defined Datasets
@@ -161,7 +152,7 @@ Evaluation
 ```Python
 # evaluation result
 model.evaluate(ds_valid,
-               steps=x_test.shape[0]//batch_size,
+               steps=valid_cnt//batch_size,
                verbose=2)
 ```
 
@@ -171,19 +162,20 @@ Below examples are part of `learn_mnist()` in sample_tfaug.py
 
 First, we set input image size and batch size for model
 ```Python
-input_size = [256, 256]  # cropped input image size
+crop_size = [256, 256]  # cropped input image size
+overlap_buffer = 256 // 4
 batch_size = 5
 ```
 
 Download and convert ADE20k dataset to tfrecord by defined function download_and_convertADE20k() in sample_tfaug.py
 ```Python
 # donwload
-download_and_convert_ADE20k(input_size)
+download_and_convert_ADE20k(crop_size, overlap_buffer)
 ```
 
 ### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
 In download_and_convertADE20k(), split original images to patch image by `TfrecordConverter.get_patch()`
-Though ADE20k images have not same image size, tensorflow model input should be exactly same size.
+Though ADE20k images have not same image size, tensorflow model input should be the exactly same size.
 ```Python
 converter = TfrecordConverter()
 
@@ -195,29 +187,37 @@ lbl_pathces = converter.get_patch(lb, input_size, overlap_buffer,
                                   x_borders, y_borders, dtype=np.uint8)
 ```
 
-Save images and labels as separated tfrecord format. 
+Save images and labels to separated tfrecord files by shards. <br/>
+Shards separation is recommended. Tensorflow read images from each tfrecord files to buffer and shuffle it.
+Therefore, multiple tfrecord files improve the randomness of input while learning.
  ```Python 
 image_per_shards = 1000
 
 ~~~~~~~~~~~~~~some codes~~~~~~~~~~~~~~~~~~~~~~
 
-converter.tfrecord_from_path_label(imgs[sti:sti+image_per_shards],
+converter.tfrecord_from_path_label(imgs,
                                    path_labels,
-                                   path_tfrecord)
+                                   dstdir +
+                                   f'tfrecord/{dirname}.tfrecords',
+                                   image_per_shards)
+
  ```
 
 ### Create Dataset by DatasetCreator()
-After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.
-For segmentation problem, use `label_type = 'segmentation'` to the constractor of the DatasetCreator.<br/>
-If you use `input_shape` param in `DatasetCreator()` like below, `AugmentImge()` generate all transformation matrix when __init__() is called. It reduces CPU load while learning. 
+After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.<br/>
+If you use `input_shape` param in `DatasetCreator()` like below, `AugmentImge()` generate all transformation matrices when __init__() is called. It reduces CPU load while learning. 
 
 ```Python
+# input batch, y, x, channel
+input_shape = [batch_size, 
+              crop_size[0]+2*overlap_buffer,
+              crop_size[1]+2*overlap_buffer, 
+              3]
 # define training and validation dataset using tfaug:
 tfrecords_train = glob(
     DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/training_*.tfrecords')
 ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
-                                      label_type='segmentation',
                                       repeat=True,
                                       standardize=True,
                                       random_zoom=[0.1, 0.1],
@@ -225,7 +225,7 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       random_shear=[10, 10],
                                       random_crop=input_size,
                                       dtype=tf.float16,
-                                      input_shape=[batch_size]+input_size+[3],#batch, y, x, channel
+                                      input_shape=input_shape,
                                       training=True)
                        .dataset_from_tfrecords(tfrecords_train))
 
@@ -233,7 +233,6 @@ tfrecords_valid = glob(
     DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_*.tfrecords')
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       batch_size=batch_size,
-                                      label_type='segmentation',
                                       repeat=True,
                                       standardize=True,
                                       random_crop=input_size,
@@ -247,7 +246,7 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
-model = def_unet(tuple(input_size+[3]), 151)  # 150class + padding area
+model = def_unet(tuple(crop_size+[3]), 151)  # 150class + padding area
 
 model.compile(optimizer=tf.keras.optimizers.Adam(0.002),
               loss=tf.keras.losses.SparseCategoricalCrossentropy(
