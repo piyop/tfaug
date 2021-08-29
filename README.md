@@ -6,7 +6,8 @@
    * [For test script](#for-test-script)
 * [Supported Augmentations](#supported-augmentations)
 * [Install](#install)
-* [Samples](#samples)
+* [Document](#document)
+* [Quick-Samples](#quick-samples)
    * [Classification Problem](#classification-problem)
       * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
       * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
@@ -63,12 +64,13 @@ This package includes below 3 classes:
  * random_noise
  * random_blur
  
- The Document is in [docs/tfaug.md](https://github.com/piyop/tfaug/tree/master/docs/tfaug.md)
- 
 # Install
 python -m pip install git+https://github.com/piyop/tfaug
 
-# Samples
+# Document
+**The descriptions of each class and function can be found at [docs/tfaug.md](https://github.com/piyop/tfaug/tree/master/docs/tfaug.md)**
+
+# Quick Samples
 
 Simple Classification and Segmentation Usage is shown below. 
 Whole ruunable codes is in sample_tfaug.py
