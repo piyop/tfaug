@@ -6,20 +6,13 @@
    * [For test script](#for-test-script)
 * [Supported Augmentations](#supported-augmentations)
 * [Install](#install)
-* [Document](#document)
+* [API Document](#api-document)
 * [Quick-Samples](#quick-samples)
    * [Classification Problem](#classification-problem)
-      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
-      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
-      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets)
    * [Segmentation Problem](#segmentation-problem)
-      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
-      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
-      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets-1)
-      * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
+   * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
+   * [Multiple input model](#multiple-input-model)
    * [Use AugmentImg Directly](#use-augmentimg-directly)
-      * [1. Initialize](#1-initialize)
-      * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
 
 
 # tfaug package
@@ -32,16 +25,17 @@ This package includes below 3 classes:
  * AugmentImg - image augmentation class. This is used inside DatasetCreator implicitly or you can use it directly.
 
 # Features
- * Augment input image and label image with same transformations at the same time.
- * Reduce cpu load by generating all transformation matrix at first. (use `input_shape` parameter at `DatasetCreator()` or `AugmentImg()`)
- * It could adjust sampling ratios from multiple tfrecord files. (use `ratio_samples` parameter at `DatasetCreator().dataset_from_tfrecords`) This is effective for class imbalance problems.
- * Augment on batch. It is more efficient than augment each image.
- * Use only tensorflow operators and builtin functions while augmentation. Because any other operations or functions (e.g. numpy functions) may be bottleneck of learning. [mentined here](https://www.tensorflow.org/guide/function).
+ * Simple, Easy and Efficient image dataflow creator 
+ * Avoiding some limitations which cause performance bottleneck of learning, Generate Tfrecord files and Dataset by one-liner.
+ * Augment input image and label image with same transformations.
+ * Reduce cpu load by generating all transformation matrix at first.
+ * Many image augmentations, multiple inputs, and adjusting sampling ratios from many tfrecord files are supporting.
 
 # Dependancies
  * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
+
 ## For test script
  * pillow
  * numpy
@@ -67,7 +61,7 @@ This package includes below 3 classes:
 # Install
 python -m pip install git+https://github.com/piyop/tfaug
 
-# Document
+# API Document
 **The descriptions of each class and function can be found at [docs/tfaug.md](https://github.com/piyop/tfaug/tree/master/docs/tfaug.md)**
 
 # Quick Samples
@@ -121,7 +115,6 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       repeat=True,
                                       training=False)
                        .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
-
 ```
 
 ### Define and Learn Model Using Defined Datasets
@@ -266,13 +259,13 @@ model.evaluate(ds_valid,
                verbose=2)
 ```
 
-### Adjust sampling ratios from multiple tfrecord files
+## Adjust sampling ratios from multiple tfrecord files
 If number of images in each class are significantly imvalanced, you may want adjust sampling ratios from each class.
 `DatasetCreator.dataset_from_tfrecords` could accepts sampling ratios. <br/>
 In that case, you must use 2 dimensional nested list representing tfrecord files to `path_records` in `DatasetCreator.dataset_from_tfrecords()` and assign `sampling_ratios` parameter for every 1 dimensional lists in 2 dimensional `path_records`.
 A simple example was written in test_tfaug.py like below:
 ```python
-dc = DatasetCreator(5, 10,
+dc = DatasetCreator(shuffle_buffer, batch_size,
                     label_type='class',
                     repeat=False,
                     **DATAGEN_CONF,  training=True)
@@ -281,10 +274,47 @@ ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
                                     ratio_samples=np.array([1,10],dtype=np.float32))
 ```
 
+## Multiple input model
+Whole code is written in aug_multi_input() in sample_tfaug.py
+
+First, you should generate Tfrecords that have multiple inputs.
+You must specifiy the params "n_imgin" in tfrecord_from_path_label() which means the number of input images.
+and you must pass sets of multiple input filepaths to 1st arg like below.
+```Python
+# prepare inputs and labels
+batch_size = 2
+filepaths0 = [DATADIR+'Lenna.png'] * 10    
+filepaths1 = [DATADIR+'Lenna_crop.png'] * 10
+labels = np.random.randint(0, 10, 10)
+
+# define tfrecord path
+path_record = DATADIR + 'multi_input.tfrecord'
+
+# generate tfrecords an one-liner
+TfrecordConverter().tfrecord_from_path_label(list(zip(filepaths0, filepaths1)), 
+                                             labels, 
+                                             path_record,
+                                             n_imgin=2)   
+                                             
+# define dataset in a one-line
+dc = DatasetCreator(1, batch_size, **aug_parms, repeat=True, training=True)
+ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+```
+
+After generating multiple input tfrecords, you just create dataset from it.
+```Python
+# define the dataset
+dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
+ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+```
+
+Dataset `ds` generate a tuple ({'image_in0':data2, 'image_in1':data2,...,}, labels) at every steps.
+So you should build a model to handle its multiple inputs.
+
 
 
 ## Use AugmentImg Directly 
-Above examples ware create tf.data.Dataset by DatasetCreator. If you need to control your dataflow in other way, you could use AugmentImage Directly
+The above examples ware create tf.data.Dataset by DatasetCreator. If you need to control your dataflow in another way, you could use AugmentImage Directly
 
 ### 1. Initialize
 ```python  
