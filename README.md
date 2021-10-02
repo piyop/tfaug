@@ -6,21 +6,13 @@
    * [For test script](#for-test-script)
 * [Supported Augmentations](#supported-augmentations)
 * [Install](#install)
-* [Document](#document)
+* [API Document](#api-document)
 * [Quick-Samples](#quick-samples)
    * [Classification Problem](#classification-problem)
-      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter)
-      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator)
-      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets)
    * [Segmentation Problem](#segmentation-problem)
-      * [Convert Images and Labels to Tfrecord Format by TfrecordConverter()](#convert-images-and-labels-to-tfrecord-format-by-tfrecordconverter-1)
-      * [Create Dataset by DatasetCreator()](#create-dataset-by-datasetcreator-1)
-      * [Define and Learn Model Using Defined Datasets](#define-and-learn-model-using-defined-datasets-1)
    * [Adjust sampling ratios from multiple tfrecord files](#adjust-sampling-ratios-from-multiple-tfrecord-files)
    * [Multiple input model](#multiple-input-model)
    * [Use AugmentImg Directly](#use-augmentimg-directly)
-      * [1. Initialize](#1-initialize)
-      * [2. use in tf.data.map() after batch()](#2-use-in-tfdatamap-after-batch)
 
 
 # tfaug package
@@ -33,17 +25,17 @@ This package includes below 3 classes:
  * AugmentImg - image augmentation class. This is used inside DatasetCreator implicitly or you can use it directly.
 
 # Features
- * Efficient and Fast segmentation and classification dataflow creator 
- * Generate Tfrecord and Dataset by one-liner avoiding some limitations which cause performance bottleneck of learning.
+ * Simple, Easy and Efficient image dataflow creator 
+ * Avoiding some limitations which cause performance bottleneck of learning, Generate Tfrecord files and Dataset by one-liner.
  * Augment input image and label image with same transformations.
  * Reduce cpu load by generating all transformation matrix at first.
- * Augment on batch. It is more efficient than augment each image.
+ * Many image augmentations, multiple inputs, and adjusting sampling ratios from many tfrecord files are supporting.
 
 # Dependancies
  * Python >= 3.5
  * tensorflow >= 2.0
  * tensorflow-addons
- * 
+
 ## For test script
  * pillow
  * numpy
@@ -69,7 +61,7 @@ This package includes below 3 classes:
 # Install
 python -m pip install git+https://github.com/piyop/tfaug
 
-# Document
+# API Document
 **The descriptions of each class and function can be found at [docs/tfaug.md](https://github.com/piyop/tfaug/tree/master/docs/tfaug.md)**
 
 # Quick Samples
