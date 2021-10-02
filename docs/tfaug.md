@@ -65,8 +65,9 @@ create dataset from filepaths
 
 **Arguments**:
 
-- `img_paths` _List[str]_ - source image paths.
-- `labels` _Union[List[str], List[int], np.ndarray], optional_ - filepaths or values of labels. Defaults to None.
+- `img_paths` _List[str]_ - source image paths. The images must be same size.
+- `labels` _Union[List[str], List[int], np.ndarray], optional_ - filepaths
+  or values of labels. Defaults to None.
 - `imgtype` _str, optional_ - 'png' or 'jpg'. Defaults to 'png'.
   
 
@@ -89,7 +90,6 @@ create dataset from filepaths
 
 create dataset from tfrecords
 
-
 **Arguments**:
 
 - `path_tfrecords` _Union[List[str], List[List[str]]]_ - paths to tfrecords
@@ -101,15 +101,18 @@ create dataset from tfrecords
 
 **Returns**:
 
-- `dataset` _tf.data.Dataset_ - dataset iterator.
+- `dataset` _tf.data.Dataset_ - dataset generator.
+  if tfrecords have multiple input images, this dataset generator generate
+  a tuple of dictionary and label like
+  ({'image_in0':data2, 'image_in1':data2,...,}, labels).
 - `num_img` _int_ - the number of images in all tfrecord files.
 
-<a id="tfaug.check_label_type"></a>
+<a id="tfaug.get_label_type"></a>
 
-#### check\_label\_type
+#### get\_label\_type
 
 ```python
-check_label_type(labels: Union[List[int],List[str],np.ndarray]) -> str
+get_label_type(labels: Union[List[int], List[str], np.ndarray]) -> str
 ```
 
 check label type in labels[0]
@@ -117,7 +120,7 @@ check label type in labels[0]
 
 **Arguments**:
 
-- `labels` _Union[List[int],List[str],np.ndarray]_ - label data source..
+- `labels` _Union[List[int],List[str],np.ndarray]_ - label data source.
   
 
 **Returns**:
@@ -162,20 +165,28 @@ The converter of images to tfrecords
 #### tfrecord\_from\_path\_label
 
 ```python
- | tfrecord_from_path_label(path_imgs: List[str], labels: Union[List[str], List[int], np.ndarray], path_out: str, image_per_shard: int = None)
+ | tfrecord_from_path_label(path_imgs: List[str], labels: Union[List[str], List[int], np.ndarray], path_out: str, image_per_shard: int = None, n_imgin: int = 1)
 ```
 
 Convert from image paths
 
+image type must be the same.
+only 1-channel is supported on tiff format
 
 **Arguments**:
 
-- `path_imgs` _List[str]_ - paths to images.
-- `labels` _Union[List[str], List[int], np.ndarray]_ - if segmentation, path to the label images
+- `path_imgs` _List[str]_ - paths to images. if n_imgin > 1,
+  use 2d List which every element
+- `labels` _Union[List[str], List[int], np.ndarray]_ - if segmentation,
+  path to the label images
   else if classification, int class labels.
 - `path_out` _str_ - output path.
 - `image_per_shard` _int, optional_ - the number of images when split
   images to shards. Defaults to None.
+- `n_inimg` _int_ - the number of input images (multiple input images).
+  if use n_inimg >= 2, you must use 2D list including n_inimg images
+  in each element to path_imgs.
+  Defaults to 1
   
 
 **Returns**:
@@ -207,12 +218,36 @@ Convert from image arrays
 
   None.
 
+<a id="tfaug.TfrecordConverter.concat_patch"></a>
+
+#### concat\_patch
+
+```python
+ | concat_patch(nppatch: np.ndarray, cy_size: int, cx_size: int) -> np.ndarray
+```
+
+Concat patches to single image.
+nppatch must be reshape with
+(cy_size x nppatch.shape[1], cx_size x nppatch.shape[2], nppatch[3])
+
+**Arguments**:
+
+- `nppatch` _np.ndarray_ - input patch images.
+  shape is [#(patch), height, width, channel]
+- `cy_size` _int_ - the num of concat patches along y(height).
+- `cx_size` _int_ - the num of concat patches along x(width).
+  
+
+**Returns**:
+
+  concated single image
+
 <a id="tfaug.TfrecordConverter.split_to_patch"></a>
 
 #### split\_to\_patch
 
 ```python
- | split_to_patch(npimg: np.ndarray, patch_size: Union[int, Tuple[int, int]], buffer_size: Union[int, Tuple[int, int]], dtype: np.dtype = np.uint8) -> np.ndarray
+ | split_to_patch(npimg: np.ndarray, patch_size: Union[int, Tuple[int, int]], buffer_size: Union[int, Tuple[int, int]], dtype: np.dtype = None) -> np.ndarray
 ```
 
 split images to patch
@@ -270,7 +305,7 @@ in tf.data.Dataset.map()
 #### \_\_init\_\_
 
 ```python
- | __init__(standardize: bool = False, resize: Tuple[int, int] = None, random_rotation: float = 0, random_flip_left_right: bool = False, random_flip_up_down: bool = False, random_shift: Tuple[float, float] = None, random_zoom: Tuple[float, float] = None, random_shear: Tuple[float, float] = None, random_brightness: float = None, random_saturation: Tuple[float, float] = None, random_hue: float = None, random_contrast: Tuple[float, float] = None, random_crop: Tuple[int, int] = None, central_crop: Tuple[int, int] = None, random_noise: float = None, random_blur: float = None, random_blur_kernel: float = 3, interpolation: str = 'nearest', clslabel: bool = False, dtype: type = None, input_shape: Tuple[int, int, int, int] = None, input_shape_label: Tuple[int, int, int, int] = None, num_transforms: int = 10000, training: bool = False) -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]
+ | __init__(standardize: bool = False, resize: Tuple[int, int] = None, random_rotation: float = 0, random_flip_left_right: bool = False, random_flip_up_down: bool = False, random_shift: Tuple[float, float] = None, random_zoom: Tuple[float, float] = None, random_shear: Tuple[float, float] = None, random_brightness: float = None, random_saturation: Tuple[float, float] = None, random_hue: float = None, random_contrast: Tuple[float, float] = None, random_crop: Tuple[int, int] = None, central_crop: Tuple[int, int] = None, random_noise: float = None, random_blur: float = None, random_blur_kernel: float = 3, interpolation: str = 'nearest', clslabel: bool = False, dtype: type = None, input_shape: Tuple[Tuple[int, int, int, int], ...] = None, input_label_shape: Tuple[int, int, int, int] = None, num_transforms: int = 10000, seeds=None, training: bool = False) -> Callable[[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]
 ```
 
 __init__() sets the parameters for augmantation.
@@ -285,7 +320,6 @@ The image sizes are presumed to be the same on each image when
 
 If training == False, this class will not augment images except standardize,
 resize, random_crop or central_crop.
-
 
 **Arguments**:
 
@@ -302,13 +336,15 @@ resize, random_crop or central_crop.
   vartical shift ratio: (-list[0], list[0])
   holizontal shift ratio: (-list[1], list[1])
   Defaults to None.
-  random_zoom (Tuple[float, float], optional):random zoom ratios of an image. unit is width and height retios.
+  random_zoom (Tuple[float, float], optional):random zoom ratios of an image.
+  unit is width and height retios.
   random_zoom[0] is y-direction, random_zoom[1] is x-direction.
   Defaults to None.
 - `random_shear` _Tuple[float, float], optional_ - randomly shear of image. unit is degree.
   random_shear[0] is y-direction(degrees), random_shear[1] is x-direction(degrees).
   Defaults to None.
-- `random_brightness` _float, optional_ - maximum image delta brightness range [-random_brightness, random_brightness).
+- `random_brightness` _float, optional_ - maximum image delta brightness
+  range [-random_brightness, random_brightness).
   The value delta is added to all components of the tensor image.
   image is converted to float and scaled appropriately
   if it is in fixed-point representation, and
@@ -317,44 +353,56 @@ resize, random_crop or central_crop.
   as it is added to the image in floating point representation,
   where pixel values are in the [0,1) range.
   Defaults to None.
-- `random_saturation` _Tuple[float, float], optional_ - maximum image saturation factor range between [random_saturation[0],
-  random_saturation[1]).
+- `random_saturation` _Tuple[float, float], optional_ - maximum image saturation
+  factor range between [random_saturation[0],random_saturation[1]).
   The value saturation factor is multiplying to the saturation channel of images.
   Defaults to None.
 - `random_hue` _float, optional_ - maximum delta hue of RGB images between [-random_hue, random_hue).
   max_delta must be in the interval [0, 0.5].
   Defaults to None.
-- `random_contrast` _Tuple[float, float], optional_ - randomly adjust contrast of RGB images by contrast factor
+- `random_contrast` _Tuple[float, float], optional_ - randomly adjust contrast of
+  RGB images by contrast factor
   which lies between [random_contrast[0], random_contrast[1])
   result image is calculated by (x - mean) * contrast_factor + mean.
   Defaults to None.
-- `random_crop` _Tuple[int, int], optional_ - randomly crop image with size [height,width] = [random_crop[0], random_crop[1]].
+- `random_crop` _Tuple[int, int], optional_ - randomly crop image with size
+  [height,width] = [random_crop[0], random_crop[1]].
   Defaults to None.
-- `central_crop` _Tuple[int, int], optional_ - crop center of image with size [height,width] = [central_crop[0], central_crop[1]].
+- `central_crop` _Tuple[int, int], optional_ - crop center of image with
+  size [height,width] = [central_crop[0], central_crop[1]].
   Defaults to None.
 - `random_noise` _float, optional_ - add random gaussian noise.
   random_noise value means sigma param of gaussian.
   Defaults to None.
-- `random_blur` _float, optional_ - add random gaussian blur. the value means sigma param of gaussian.
+- `random_blur` _float, optional_ - add random gaussian blur.
+  the value means sigma param of gaussian.
   random_blur generate sigma as uniform(0, random_blur) for every mini-batch
   random blur converts integer images to float images. Defaults to None.
 - `random_blur_kernel` _float, optional_ - kernel size of gaussian random blur.
   Defaults to 3.
 - `interpolation` _str, optional_ - interpolation method. nearest or bilinear
   Defaults to 'nearest'.
-- `clslabel` _bool, optional_ - If false, labels are presumed to be the same dimensions as the image and
+- `clslabel` _bool, optional_ - If false, labels are presumed to be the same
+  dimensions as the image and
   apply the same geometric transformations to labels. Defaults to False.
 - `dtype` _type, optional_ - tfaug cast input images to this dtype after
   geometric transformation.
   Defaults to None.
-- `input_shape` _Tuple[int, int, int, int], optional_ - input image (batch,y,x,channels) dimensions.
+- `input_shape` _Tuple[Tuple[int, int, int, int],...], optional_ - input image
+  ((batch,y,x,channels),...)=(img1_shape, img2_shape, ...) dimensions.
+  when use DatasetCreator, you dont need this.
   To reduce CPU load by generating all transform matrices at first,
-  use this. Defaults to None.
-- `input_shape_label` _Tuple[int, int, int, int], optional_ - input label (batch,y,x,channels) dimensions.
+  use this.
+  if you have multiple inputs, use nested list.
+  Defaults to None.
+- `input_label_shape` _Tuple[int, int, int, int]_ - input label
+  (batch,y,x,channels) dimensions.
   To reduce CPU load by generating all transform matrices at first,
   use this if label is segmentation. Defaults to None.
 - `num_transforms` _int, optional_ - The number of transformation matrixes generated in advance.
   when input_shape is used. Defaults to 10,000.
+  seeds (Tuple(float), optional): Multiple random seeds. Each time you call,
+  the next seed is used in the sequence.
 - `training` _bool, optional_ - If false, augment is not done except standardize.
   Defaults to False.
   

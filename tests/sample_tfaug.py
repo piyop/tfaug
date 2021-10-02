@@ -21,10 +21,89 @@ import tensorflow as tf
 from tensorflow.data.experimental import AUTOTUNE
 
 
-from tfaug import TfrecordConverter, DatasetCreator, AugmentImg
-import test_tfaug_tool as tool
+from tfaug import TfrecordConverter, DatasetCreator
 
 DATADIR = 'testdata/tfaug/'
+
+
+def quick_toy_sample():
+    
+    # source image and labels
+    imgpaths = ['testdata/tfaug/Lenna.png'] * 10  
+    labels = np.random.randint(0, 255, 10)
+    
+    # configure and create dataset
+    dataset = DatasetCreator(shuffle_buffer=10, 
+                            batch_size=2, 
+                            repeat=True,
+                            standardize=True, # add augmentation params here
+                            training=True
+                            ).dataset_from_path(imgpaths,labels)
+    
+    # define and compile the model
+    mbnet = tf.keras.applications.MobileNetV2(include_top=True, weights=None)    
+    mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    
+    # learn the model
+    mbnet.fit(dataset, epochs=10, steps_per_epoch=10)
+
+
+def toy_example():    
+
+    # prepare inputs and labels
+    batch_size = 2
+    shuffle_buffer = 10
+    filepaths = [DATADIR+'Lenna.png'] * 10    
+    class_labels = np.random.randint(0, 10, 10)
+
+    # define tfrecord path
+    path_record = DATADIR + 'multi_input.tfrecord'
+    
+    # generate tfrecords in a one-line
+    TfrecordConverter().tfrecord_from_path_label(filepaths, 
+                                                 class_labels, 
+                                                 path_record) 
+    
+    # define augmentation parameters    
+    aug_parms = {'random_rotation': 5,
+                'random_flip_left_right': True,
+                'random_shear': [5, 5],
+                'random_brightness': 0.2,
+                'random_crop': None,  
+                'random_blur': [0.5, 1.5]}
+    
+    # set augmentation and learning parameters to dataset
+    dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
+    # define dataset and number of dataset
+    ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+    
+    # define the handling of multiple inputs => just resize and concat
+    # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
+    def concat_inputs(inputs, label):
+        resized = tf.image.resize(inputs['image_in1'], (512, 512))
+        concated = tf.concat([inputs['image_in0'], resized], axis=-1)
+        # resized = tf.image.resize(concated, (224, 224))
+        return concated, label
+    ds = ds.map(concat_inputs)
+    
+    # define the model
+    mbnet = tf.keras.applications.MobileNetV2(input_shape = [512,512,6],
+                                              include_top=True,
+                                               weights=None)
+    
+    mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    
+    # learn the model
+    mbnet.fit(ds,
+              epochs=10,
+              steps_per_epoch=imgcnt//batch_size,)
+    
+    # evaluate the model
+    mbnet.fit(ds,
+              epochs=10,
+              steps_per_epoch=imgcnt//batch_size,)
+
+    
 
 
 def lean_mnist():
@@ -64,10 +143,6 @@ def lean_mnist():
                                           training=False)
                            .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
-    # constant reguralization
-    ds_train = ds_train.map(lambda x, y: (x/255, y))
-    ds_train = ds_valid.map(lambda x, y: (x/255, y))
-
     model = tf.keras.models.Sequential([
         tf.keras.layers.Flatten(input_shape=(28, 28)),
         tf.keras.layers.Dense(128, activation='relu'),
@@ -101,12 +176,6 @@ def learn_ade20k():
     # donwload
     overlap_buffer = 256 // 4
     download_and_convert_ADE20k(crop_size, overlap_buffer)
-
-    # input batch, y, x, channel
-    input_shape = [batch_size, 
-                  crop_size[0]+2*overlap_buffer,
-                  crop_size[1]+2*overlap_buffer, 
-                  3]
     
     # define training and validation dataset using tfaug:
     tfrecords_train = glob(
@@ -120,7 +189,6 @@ def learn_ade20k():
                                           random_shear=[10, 10],
                                           random_crop=crop_size,
                                           dtype=tf.float16,
-                                          input_shape=input_shape,
                                           training=True)
                            .dataset_from_tfrecords(tfrecords_train))
 
@@ -171,8 +239,6 @@ def test_parse_tfrecord():
         # define dataset
         ds = tf.data.TFRecordDataset(
             tfrecord, num_parallel_reads=len(tfrecords_train))
-
-        # ds = ds.shuffle(4)
 
         ds_train = (ds.batch(4)
                     .apply(tf.data.experimental.parse_example_dataset(tfexample_format))
@@ -275,7 +341,7 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
     converter = TfrecordConverter()
 
     patchdir = dstdir+'patch/'
-    if len(glob(patchdir+'images/*/ADE_*_no*.jpg')) != 64563:
+    if len(glob(patchdir+'images/*/ADE_*_no*.jpg')) != 64563: # 99209?+
         print('splitting imgs to patch...', flush=True)
 
         # split images into patch
@@ -325,7 +391,7 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
     path_tfrecord = DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_1.tfrecords'
     # check converted tfrecord
     dc = DatasetCreator(
-        False, 10, label_type='segmentation', training=True)
+        False, 10, training=True)
     ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
     piyo = next(iter(ds.take(1)))
     plt.imshow(piyo[0][5])
@@ -353,65 +419,65 @@ def check_ADE20k_label():
         ax.imshow(pimg)
 
 
-def aug_multi_input_and_pyfunc():
+def aug_multi_input():
+    # toy example for multiple inputs
 
-    batch_size = 1
-    filepaths = [DATADIR+'kanoko.png'] * 10
+    # prepare inputs and labels
+    batch_size = 2
+    shuffle_buffer = 10
+    filepaths0 = [DATADIR+'Lenna.png'] * 10    
+    filepaths1 = [DATADIR+'Lenna_crop.png'] * 10
+    labels = np.random.randint(0, 10, 10)
 
-    # define tf.data.Dataset
-    ds = tf.data.Dataset.from_tensor_slices(
-        tf.range(10)).repeat().batch(batch_size)
-
-    # define augmentation
-    aug_fun = AugmentImg(
-        standardize=False, random_rotation=90, clslabel=False,
-        training=True)
-
-    # construct preprocessing function
-    dtype = tf.int32
-
-    def tf_img_preproc(filepaths1, filepaths2, aug_func):
-        def preproc(image_nos):
-
-            # augment only image here
-            return (aug_func(tf.convert_to_tensor(tool.read_imgs([filepaths1[no]
-                                                                  for no
-                                                                  in image_nos]),
-                                                  dtype=dtype)),
-                    tf.convert_to_tensor(tool.read_imgs([filepaths2[no]
-                                                         for no
-                                                         in image_nos]),
-                                         dtype=dtype))
-        return preproc
-
-    # pass aug_fun to 3rd arg
-    func = tf_img_preproc(filepaths, filepaths.copy(), aug_fun)
-    # py_function for multiple output
-
-    def func(x): return tool.new_py_function(
-        func, [x], {'image1': dtype, 'image2': dtype})
-
-    # map preprocess and augmentation
-    ds_aug = ds.map(func, num_parallel_calls=AUTOTUNE)
-
-    # check augmented image
-    fig, axs = plt.subplots(
-        batch_size*2, 10, figsize=(10, batch_size*2), dpi=300)
-    for i, in_dict in enumerate(iter(ds_aug.take(10))):
-        for row in range(batch_size):
-            axs[row*2, i].axis("off")
-            axs[row*2, i].imshow(in_dict['image1'][row])
-            axs[row*2+1, i].axis("off")
-            axs[row*2+1, i].imshow(in_dict['image2'][row])
-
-    plt.savefig(DATADIR+'aug_multi_input_and_pyfunc.png')
-
-    # to learn a model
-    # model.fit(ds_aug)
+    # define tfrecord path
+    path_record = DATADIR + 'multi_input.tfrecord'
+    
+    # generate tfrecords in a one-line
+    TfrecordConverter().tfrecord_from_path_label(list(zip(filepaths0, filepaths1)), 
+                                                 labels, 
+                                                 path_record,
+                                                 n_imgin=2)    
+    
+    # define augmentation parameters    
+    aug_parms = {'standardize': False,
+                'random_rotation': 5,
+                'random_flip_left_right': True,
+                'random_zoom': [0.2, 0.2],
+                'random_shear': [5, 5],
+                'random_brightness': 0.2,
+                'random_crop': None,  
+                'random_blur': [0.5, 1.5],
+                'num_transforms': 10}
+    
+    # define dataset
+    dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
+    ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+    
+    # define the handling of multiple inputs => just resize and concat
+    # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
+    def concat_inputs(inputs, label):
+        resized = tf.image.resize(inputs['image_in1'], (512, 512))
+        concated = tf.concat([inputs['image_in0'], resized], axis=-1)
+        # resized = tf.image.resize(concated, (224, 224))
+        return concated, label
+    ds = ds.map(concat_inputs)
+    
+    # define the model
+    mbnet = tf.keras.applications.MobileNetV2(input_shape = [512,512,6],
+                                              include_top=True,
+                                               weights=None)
+    
+    mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    
+    # learn the model
+    mbnet.fit(ds,
+              epochs=10,
+              steps_per_epoch=imgcnt//batch_size,)
 
 
 if __name__ == '__main__':
     pass
-    # lean_mnist()
-    learn_ade20k()
+    lean_mnist()
+    # learn_ade20k()
     # check_ADE20k_label()
+    # aug_multi_input()
