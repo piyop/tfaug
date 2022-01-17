@@ -10,7 +10,6 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-from collections import namedtuple
 from tqdm import tqdm
 from glob import glob
 
@@ -21,8 +20,10 @@ import tensorflow as tf
 
 import test_tfaug_tool as tool
 from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
+from test_aug_types import TestAugTypes
 
-DATADIR = 'testdata/tfaug/'
+
+DATADIR = 'testdata/'
 
     
 class TestTfrecordConverter(unittest.TestCase):
@@ -54,7 +55,6 @@ class TestTfrecordConverter(unittest.TestCase):
         ret = TfrecordConverter().concat_patch(splitted, cy_size, cx_size)        
         
         assert (img == ret[:img.shape[0],:img.shape[1]]).all(), 'value is changed'
-        
 
 
 
@@ -69,9 +69,9 @@ class TestDatasetCreator(unittest.TestCase):
         
         dc = DatasetCreator(False, BATCH_SIZE, training=True)
         
-        ds1 = DatasetCreator(1, BATCH_SIZE).dataset_from_path(flist_imgs)
-        ds2 = DatasetCreator(1, BATCH_SIZE).dataset_from_path(flist_imgs_small)
-        lbl = DatasetCreator(1, BATCH_SIZE).dataset_from_path(flist_imgs)
+        ds1 = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs)
+        ds2 = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs_small)
+        lbl = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs)
         lbl_cls = tf.data.Dataset.from_tensor_slices(clslabels).batch(BATCH_SIZE)       
         
         # segmentation
@@ -79,7 +79,7 @@ class TestDatasetCreator(unittest.TestCase):
         
         shapes_in, shapes_lbl = dc._get_inputs_shapes(test_ds1, 'segmentation')
         
-        assert shapes_in == (BATCH_SIZE, 512,512,3), 'invalid shape'
+        assert shapes_in == [(BATCH_SIZE, 512,512,3)], 'invalid shape'
         assert shapes_lbl == (BATCH_SIZE, 512,512,3), 'invalid label shape'
         
         # classification
@@ -120,21 +120,18 @@ class TestDatasetCreator(unittest.TestCase):
                             BATCH_SIZE,
                             **DATAGEN_CONF,
                             training=True)
-        ds = dc.dataset_from_path(flist, labels)            
+        ds = dc.from_path(flist, labels)            
                     
         taked = iter(ds.take(10))
         
-        # img, lbl = next(iter(ds.take(10)))
-
         @tf.function
         def one_step():
             img, lbl = next(taked)
-            print('imgshape:', img.shape, 'lblshape:', lbl.shape)
-
-            assert img.shape[0] == BATCH_SIZE, 'invalid batch size'
+            # print('imgshape:', img.shape, 'lblshape:', lbl.shape)
             return img, lbl
 
-        img, lbl = one_step()
+        img, lbl = one_step()        
+        assert img.shape[0] == BATCH_SIZE, 'invalid batch size'
         
         zipped = zip(img, lbl)
         piyo0, piyo1 = next(zipped)
@@ -142,7 +139,7 @@ class TestDatasetCreator(unittest.TestCase):
         tool.plot_dsresult(((img, lbl),), BATCH_SIZE, 1,
                            DATADIR+'test_tf_function.png')
         
-    def test_dataset_from_path(self):
+    def test_from_path(self):
 
         # data augmentation configurations:
         DATAGEN_CONF = {'standardize': True,
@@ -168,12 +165,12 @@ class TestDatasetCreator(unittest.TestCase):
         ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
                             **DATAGEN_CONF,
                             training=True).\
-            dataset_from_path(flist, labels)
+            from_path(flist, labels)
 
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
-                           DATADIR+'test_dataset_from_path.png')
+                           DATADIR+'test_from_path.png')
 
-    def test_dataset_from_tfrecord(self):
+    def test_from_tfrecord(self):
 
         random_crop_size = [100, 254]
         # data augmentation configurations:
@@ -199,13 +196,13 @@ class TestDatasetCreator(unittest.TestCase):
 
         # test for classification
         path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist,
+        TfrecordConverter().from_path_label(flist,
                                                      labels,
                                                      path_tfrecord_0)
 
         dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
                             **DATAGEN_CONF, training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord_0])
+        ds, cnt = dc.from_tfrecords([path_tfrecord_0])
 
         rep_cnt = 0
         for img, label in iter(ds):
@@ -219,14 +216,14 @@ class TestDatasetCreator(unittest.TestCase):
 
         # test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist,
+        TfrecordConverter().from_path_label(flist,
                                                      flist,
                                                      path_tfrecord)
 
         dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
                             label_type='segmentation',
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, cnt = dc.from_tfrecords([path_tfrecord])
 
         rep_cnt = 0
         for img, label in iter(ds):
@@ -239,7 +236,7 @@ class TestDatasetCreator(unittest.TestCase):
         tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
                            DATADIR+'test_ds_from_tfrecord.png')
 
-    def test_dataset_from_tfrecord_sample_ratio(self):
+    def test_from_tfrecord_sample_ratio(self):
 
         random_crop_size = [100, 254]
         # data augmentation configurations:
@@ -264,12 +261,12 @@ class TestDatasetCreator(unittest.TestCase):
         # test for ratio_samples
         labels = [0] * 10 * BATCH_SIZE
         path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist,
+        TfrecordConverter().from_path_label(flist,
                                                      labels,
                                                      path_tfrecord_0)
         labels = [1] * 10 * BATCH_SIZE
         path_tfrecord_1 = DATADIR+'ds_from_tfrecord_1.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist,
+        TfrecordConverter().from_path_label(flist,
                                                      labels,
                                                      path_tfrecord_1)
 
@@ -277,7 +274,7 @@ class TestDatasetCreator(unittest.TestCase):
                             label_type='class',
                             repeat=False,
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+        ds, cnt = dc.from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
                                             ratio_samples=np.array([0.1, 1000], dtype=np.float32))
 
         img, label = next(iter(ds.take(1)))
@@ -288,7 +285,7 @@ class TestDatasetCreator(unittest.TestCase):
                                  label_type='class',
                                  repeat=False,
                                  **DATAGEN_CONF,
-                                 training=True).dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+                                 training=True).from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
                                                                        ratio_samples=np.array([1, 1], dtype=np.float32))
         rep_cnt = 0
         for img, label in iter(ds):
@@ -301,7 +298,7 @@ class TestDatasetCreator(unittest.TestCase):
                             label_type='class',
                             repeat=True,
                             **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
+        ds, cnt = dc.from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
                                             ratio_samples=np.array([1, 10], dtype=np.float32))
         ds = ds.take(200)
         cnt_1, cnt_0 = 0, 0
@@ -313,7 +310,7 @@ class TestDatasetCreator(unittest.TestCase):
             "sampling ratio is invalid. this happen randomely. please retry:"\
                 + str(cnt_0/cnt_1)
 
-    def test_tfrecord_from_path(self):
+    def test_from_path(self):
 
         BATCH_SIZE = 2
         flist_imgs = [DATADIR+'Lenna.png'] * 10
@@ -321,40 +318,39 @@ class TestDatasetCreator(unittest.TestCase):
         img_org = np.array(Image.open(flist_imgs[0]))
         clslabels = list(range(10))
 
-        path_tfrecord = DATADIR+'test_tfrecord_from_path.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        path_tfrecord = DATADIR+'test_from_path.tfrecord'
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      flist_seglabels,
                                                      path_tfrecord)
 
         # check segmentation label
         dc = DatasetCreator(1, BATCH_SIZE, training=True)
-        ds, imgcnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, imgcnt = dc.from_tfrecords([path_tfrecord])
 
         for i, (img, label) in enumerate(ds):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert (label == img_org).numpy().all(), 'labels is changed'
 
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      clslabels,
                                                      path_tfrecord)
 
         # check class label
         dc = DatasetCreator(False, BATCH_SIZE, training=True)
-        ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, datacnt = dc.from_tfrecords([path_tfrecord])
 
         for i, (img, label) in enumerate(ds):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert all(label.numpy() == 
                        clslabels[i*BATCH_SIZE:(i+1)*BATCH_SIZE]), '''label is
-                                                                    changed'''            
+                                                a                    changed'''            
         
         
         
-    def test_tfrecord_from_3inputs(self):
+    def test_from_3inputs(self):
 
         BATCH_SIZE = 2
-        flist_imgs = [DATADIR+'Lenna.png'] * 10
-        img_org = np.array(Image.open(flist_imgs[0]))
+        img_org = np.array(Image.open(DATADIR+'Lenna.png'))
         clslabels = list(range(10))
         
         # test uint8 and float32 tiff
@@ -366,13 +362,13 @@ class TestDatasetCreator(unittest.TestCase):
                       for i in range(10)]
         # test 3 images in tfrecord and classification
         path_tfrecord = DATADIR+'test_3_inimgs.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
-                                                     clslabels,
-                                                     path_tfrecord,
-                                                     n_imgin=3)
+        TfrecordConverter().from_path_label(flist_imgs,
+                                            clslabels,
+                                            path_tfrecord,
+                                            n_imgin=3)
         
-        dc = DatasetCreator(False, BATCH_SIZE, training=True)
-        ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
+        dc = DatasetCreator(False, BATCH_SIZE, num_transforms=20, training=True)
+        ds, datacnt = dc.from_tfrecords([path_tfrecord])
         
         for i, inputs in enumerate(ds):
             assert (inputs[0]['image_in0'] == img_org).numpy().all(), 'in_image0 is changed'
@@ -383,13 +379,13 @@ class TestDatasetCreator(unittest.TestCase):
                 
         # test 3 images in tfrecord and segmentation
         path_tfrecord = DATADIR+'test_3_inimgs_seg.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      [DATADIR+'Lenna.png'] * 10,
                                                      path_tfrecord,
                                                      n_imgin=3)
         
-        dc = DatasetCreator(False, BATCH_SIZE, training=True)
-        ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
+        dc = DatasetCreator(False, BATCH_SIZE, num_transforms=20, training=True)
+        ds, datacnt = dc.from_tfrecords([path_tfrecord])
         
         for i, inputs in enumerate(ds):
             assert (inputs[0]['image_in0'] == img_org).numpy().all(), 'in_image0 is changed'
@@ -411,7 +407,7 @@ class TestDatasetCreator(unittest.TestCase):
                       for i in range(10)]
         
         path_tfrecord = DATADIR+'test_3_inimgs.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      clslabels,
                                                      path_tfrecord,
                                                      n_imgin=3)
@@ -421,10 +417,10 @@ class TestDatasetCreator(unittest.TestCase):
         (ds, num_img, label_type, imgs_dtype, 
          imgs_shape, label_shape) = dc._get_ds_tfrecord(1, path_tfrecords)
         
-        # test _set_formats
-        example_formats, decoders = dc._set_formats(label_type,
-                                                        imgs_dtype, 
-                                                        imgs_shape)
+        # test _set_formats        
+        example_formats = dc._gen_example(label_type, imgs_dtype, imgs_shape)
+        decoders = dc._decoder_creator(label_type, imgs_dtype, imgs_shape)
+        
         
         assert example_formats['image_in0'].dtype == tf.string
         assert example_formats['image_in1'].dtype == tf.string
@@ -459,7 +455,7 @@ class TestDatasetCreator(unittest.TestCase):
 
         ds_aug = ds_decoded.map(aug_fun)
                     
-        ds_out = ds_aug.map(dc._ds_to_dict(example_formats))    
+        ds_out = ds_aug.map(dc._ds_to_dict(example_formats.keys()))
         test_ret = next(iter(ds_out))
         
         assert test_ret[0]['image_in0'].shape == [BATCH_SIZE, *imgs_shape[0]], "invalid image 0 size"
@@ -469,7 +465,7 @@ class TestDatasetCreator(unittest.TestCase):
         
         
 
-    def test_sharded_tfrecord_from_path(self):
+    def test_sharded_from_path(self):
 
         flist_imgs = [DATADIR+'Lenna.png'] * 10
         flist_seglabels = flist_imgs.copy()
@@ -477,7 +473,7 @@ class TestDatasetCreator(unittest.TestCase):
         clslabels = list(range(10))
 
         path_tfrecord = DATADIR+'test_shards_from_path.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      flist_seglabels,
                                                      path_tfrecord,
                                                      image_per_shard=3)
@@ -487,14 +483,14 @@ class TestDatasetCreator(unittest.TestCase):
 
         # check segmentation label
         dc = DatasetCreator(1, 1, label_type='segmentation', training=True)
-        ds, imgcnt = dc.dataset_from_tfrecords(path_tfrecords)
+        ds, imgcnt = dc.from_tfrecords(path_tfrecords)
 
         for i, (img, label) in enumerate(ds):
             assert (img == img_org).numpy().all(), 'image is changed'
             assert (label == img_org).numpy().all(), 'labels is changed'
 
         path_tfrecord = DATADIR+'test_shards_from_path_seg.tfrecord'
-        TfrecordConverter().tfrecord_from_path_label(flist_imgs,
+        TfrecordConverter().from_path_label(flist_imgs,
                                                      clslabels,
                                                      path_tfrecord,
                                                      image_per_shard=2)
@@ -504,7 +500,7 @@ class TestDatasetCreator(unittest.TestCase):
 
         # check class label
         dc = DatasetCreator(False, 1, label_type='class', training=True)
-        ds, datacnt = dc.dataset_from_tfrecords(path_tfrecords)
+        ds, datacnt = dc.from_tfrecords(path_tfrecords)
 
         list_label = []
         for i, (img, label) in enumerate(ds):
@@ -515,9 +511,9 @@ class TestDatasetCreator(unittest.TestCase):
         assert all(label_all == clslabels), 'label was changed'
         
         
-        #check tfrecord_from_ary_label()        
+        #check from_ary_label()        
 
-    def test_tfrecord_from_ary_label(self):
+    def test_from_ary_label(self):
 
         random_crop_size = [100, 254]
         # data augmentation configurations:
@@ -547,7 +543,7 @@ class TestDatasetCreator(unittest.TestCase):
 
         # test for classification
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().tfrecord_from_ary_label(image,
+        TfrecordConverter().from_ary_label(image,
                                                     labels,
                                                     path_tfrecord)
 
@@ -559,7 +555,7 @@ class TestDatasetCreator(unittest.TestCase):
         dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
                             label_type='class', preproc=preproc,
                             **DATAGEN_CONF, training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, cnt = dc.from_tfrecords([path_tfrecord])
 
         rep_cnt = 0
         test = next(iter(ds))
@@ -572,7 +568,7 @@ class TestDatasetCreator(unittest.TestCase):
 
         #test for segmentation
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().tfrecord_from_ary_label(image,
+        TfrecordConverter().from_ary_label(image,
                                                     image,
                                                     path_tfrecord)
 
@@ -583,7 +579,7 @@ class TestDatasetCreator(unittest.TestCase):
         dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
                             label_type='segmentation', preproc=preproc,
                             **DATAGEN_CONF, training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, cnt = dc.from_tfrecords([path_tfrecord])
 
         rep_cnt = 0
         for img, label in iter(ds):
@@ -597,22 +593,21 @@ class TestDatasetCreator(unittest.TestCase):
         # test for no labels
         path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
         DATAGEN_CONF['input_shape'] = [BATCH_SIZE,*image.shape[1:]]
-        TfrecordConverter().tfrecord_from_ary_label(image,
+        TfrecordConverter().from_ary_label(image,
                                                     None,
                                                     path_tfrecord)
 
         dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
                             label_type=None,
                             **DATAGEN_CONF, training=True)
-        ds, cnt = dc.dataset_from_tfrecords([path_tfrecord])
+        ds, cnt = dc.from_tfrecords([path_tfrecord])
 
         rep_cnt = 0
         for img in iter(ds):
             rep_cnt += 1
-
+            
         assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert img.shape[3] == 4, "data shape is invalid"
+        assert img.shape == [BATCH_SIZE, *random_crop_size, 4], "crop size is invalid"
 
 
 
@@ -753,7 +748,8 @@ class TestAugmentImg(unittest.TestCase):
             random_zoom=random_zoom,
             random_brightness=0.2,
             random_saturation=random_saturation,
-            training=training)
+            training=training,
+            num_transforms=100)
 
         image = image.astype(np.float32)
 
@@ -777,219 +773,6 @@ class TestAugmentImg(unittest.TestCase):
                 tf.print('get data')
                 img = next(ds.take(1).__iter__())
                 # print(img.shape)
-
-    def adjust_img_range(self, img):
-        if img.dtype == np.float16:
-            img = img.astype(np.float32)
-        max_axis = np.max(img, axis=(1, 2, 3))[:, None, None, None]
-        min_axis = np.min(img, axis=(1, 2, 3))[:, None, None, None]
-        return (img - min_axis) / (max_axis - min_axis)
-
-    def test_augmentation(self):
-        """
-        test class AugmentImg
-
-        Returns
-        -------
-        None.
-
-        """
-        
-        fields = ['standardize',
-                  'resize',
-                  'random_rotation',
-                  'random_flip_left_right',
-                  'random_flip_up_down',
-                  'random_shift',
-                  'random_zoom',
-                  'random_shear',
-                  'random_brightness',
-                  'random_saturation',
-                  'random_hue',
-                  'random_contrast',
-                  'random_crop',
-                  'random_noise',
-                  'random_blur',
-                  'random_blur_kernel',
-                  'interpolation',
-                  'dtype',
-                  'input_shape',
-                  'num_transforms',
-                  'training']
-        params = namedtuple('params', ','.join(fields))
-        params.__new__.__defaults__ = (None,)*len(fields)
-        
-
-        # image and lbl which you want to test
-        testimg = DATADIR+'Lenna.png'
-        testlbl = DATADIR+'Lenna.png'
-
-        BATCH_SIZE = 10
-
-        with Image.open(testimg).convert('RGB') as img:
-            image = np.asarray(img)
-        image = np.tile(image, (BATCH_SIZE, 1, 1, 1))
-
-        with Image.open(testlbl).convert('RGB') as label:
-            label = np.asarray(label)
-        if label.data.ndim == 2:
-            # if label image have no channel, add channel axis
-            label = label[:, :, np.newaxis]
-        label = np.tile(label, (BATCH_SIZE, 1, 1, 1))
-
-        cases = [            
-            ('test dtype',
-             params(standardize=True,
-                    resize=(300, 400),
-                    random_brightness=0.5,
-                    random_hue=0.01,
-                    random_contrast=[.1, .5],
-                    random_noise=100,
-                    interpolation='nearest',
-                    dtype=tf.float16,
-                    training=True)),
-            ('test random_blur',
-             params(standardize=True,
-                    resize=(50, 50),
-                    random_blur=1,
-                    random_blur_kernel=5,
-                    interpolation='nearest',
-                    input_shape=[BATCH_SIZE, 512, 512, 3],
-                    num_transforms=5,
-                    training=True)),
-            ('test random_hue1',
-             params(random_hue=0.01,
-                    interpolation='nearest',
-                    input_shape=[BATCH_SIZE, 512, 512, 3],
-                    training=True)),
-            ('test random_hue2',
-             params(random_hue=0.5,
-                    interpolation='nearest',
-                    input_shape=[BATCH_SIZE, 512, 512, 3],
-                    training=True)),
-            ('test num_transforms',
-             params(standardize=True,
-                    resize=(300, 400),
-                    random_brightness=0.5,
-                    random_rotation=20,
-                    interpolation='nearest',
-                    input_shape=[BATCH_SIZE, 512, 512, 3],
-                    num_transforms=50,
-                    training=True)),
-            ('test x_shift and rotation',
-             params(random_rotation=45,
-                    random_shift=(0, 256),
-                    interpolation='nearest',
-                    training=True)),
-            ('test crop and zoom',
-             params(random_rotation=45,
-                    random_flip_left_right=False,
-                    random_flip_up_down=False,
-                    random_shift=None,
-                    random_zoom=(0.8, 0.1),
-                    random_crop=(256, 512),
-                    interpolation='bilinear',
-                    training=True)),
-            ('test shear and color',
-             params(standardize=True,
-                    random_flip_left_right=False,
-                    random_flip_up_down=False,
-                    random_zoom=[0.1, 0.1],
-                    random_shear=(10, 10),
-                    random_brightness=0.5,
-                    random_saturation=[0.5, 1.5],
-                    random_hue=0.001,
-                    random_contrast=[.1, .5],
-                    interpolation='bilinear',
-                    training=True)),
-            ('test train = False',
-             params(standardize=True,
-                    random_rotation=45,
-                    random_flip_left_right=True,
-                    random_flip_up_down=True,
-                    random_brightness=0.5,
-                    random_contrast=[.5, 1.5],
-                    random_crop=(256, 256),
-                    interpolation='nearest',
-                    training=False)),
-            ('test resize',
-             params(resize=(300, 500),
-                    training=True)),
-            ('test resize and zoom',
-             params(resize=(256, 512),
-                    random_zoom=(0, 0.5),
-                    interpolation='nearest',
-                    training=True)),
-            ('test resize and rotation',
-             params(resize=(900, 400),
-                    random_rotation=45,
-                    interpolation='nearest',
-                    training=True)),
-            ('test rotation',
-             params(random_rotation=45,
-                    training=True)),
-            ('test random_flip_left_right',
-             params(random_flip_left_right=True,
-                    training=True)),
-            ('test random_flip_up_down',
-             params(random_flip_up_down=True,
-                    training=True)),
-            ('test y_shift',
-             params(random_shift=[256, 0],
-                    random_brightness=False,
-                    training=True)),
-            ('test zoom',
-             params(random_zoom=(0.5, 0.1),
-                    training=True)),
-            
-            ('test random_contrast',
-             params(random_contrast=[1.4,2],
-                    training=True)),
-            ('test shear',
-             params(random_shear=(10, 10),
-                    training=True)),
-            ('test random_brightness',
-             params(random_brightness=0.5,
-                    training=True)),
-            ('test random_noise',
-             params(random_noise=50,
-                    interpolation='nearest',
-                    training=True)),
-        ]
-                  
-        for no, case in enumerate(cases):
-            with self.subTest(case=case):
-                print(case)
-
-                func = AugmentImg(**case[1]._asdict())
-
-                img, lbl = func(image, label)
-
-                if case[1].resize and not case[1].random_crop:
-                    assert img.shape == [BATCH_SIZE] + \
-                        list(case[1].resize) + [3]
-                    assert lbl.shape == [BATCH_SIZE] + \
-                        list(case[1].resize) + [3]
-                elif case[1].random_crop:
-                    assert img.shape == [BATCH_SIZE] + \
-                        list(case[1].random_crop) + [3]
-                    assert lbl.shape == [BATCH_SIZE] + \
-                        list(case[1].random_crop) + [3]
-                else:
-                    assert img.shape == image.shape
-                    assert lbl.shape == label.shape
-
-                # adjust value range to display images : canceling standardize effect.
-                # this cause color change
-                img = img.numpy()
-                lbl = lbl.numpy()
-                if case[1].standardize:
-                    img = self.adjust_img_range(img)
-                    lbl = self.adjust_img_range(lbl)
-
-                tool.plot_dsresult(((img, lbl),), BATCH_SIZE,
-                                   1, DATADIR+case[0]+'.png', 
-                                   plot_label=True)
 
     def test_central_crop(self):
 
@@ -1020,7 +803,8 @@ class TestAugmentImg(unittest.TestCase):
                           random_brightness=False,
                           random_saturation=False,
                           central_crop=[256, 128],
-                          training=training)
+                          training=training,
+                          num_transforms=10)
 
         img, lbl = func(image, label)
         lbl_offset_y = (label.shape[1] - 256) // 2
@@ -1216,8 +1000,12 @@ class TestAugmentImg(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    unittest.main()
-    # TestTfaug().test_private_functions_in_DatasetCreator()
-    # TestDatasetCreator().test_tfrecord_from_ary_label()
-    # TestDatasetCreator().test_tfrecord_from_path()
-    # TestDatasetCreator().test_set_inputs_shapes()
+    unittest.main()    
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestAugTypes)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+    
+    # TestDatasetCreatoar().test_from_3inputs()
+    # TestDatasetCreator().test_from_tfrecord()
+    # TestDatasetCreator().test_from_ary_label()
+    # TestDatasetCreator().test_from_path()
+    # TestAugmentImg().test_augmentation()

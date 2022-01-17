@@ -38,7 +38,7 @@ def quick_toy_sample():
                             repeat=True,
                             standardize=True, # add augmentation params here
                             training=True
-                            ).dataset_from_path(imgpaths,labels)
+                            ).from_path(imgpaths,labels)
     
     # define and compile the model
     mbnet = tf.keras.applications.MobileNetV2(include_top=True, weights=None)    
@@ -60,7 +60,7 @@ def toy_example():
     path_record = DATADIR + 'multi_input.tfrecord'
     
     # generate tfrecords in a one-line
-    TfrecordConverter().tfrecord_from_path_label(filepaths, 
+    TfrecordConverter().from_path_label(filepaths, 
                                                  class_labels, 
                                                  path_record) 
     
@@ -75,7 +75,7 @@ def toy_example():
     # set augmentation and learning parameters to dataset
     dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
     # define dataset and number of dataset
-    ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+    ds, imgcnt = dc.from_tfrecords(path_record)
     
     # define the handling of multiple inputs => just resize and concat
     # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
@@ -121,9 +121,9 @@ def lean_mnist():
     (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 
     # save as tfrecord
-    TfrecordConverter().tfrecord_from_ary_label(
+    TfrecordConverter().from_ary_label(
         x_train, y_train, DATADIR+'mnist/train.tfrecord')
-    TfrecordConverter().tfrecord_from_ary_label(
+    TfrecordConverter().from_ary_label(
         x_test, y_test, DATADIR+'mnist/test.tfrecord')
 
     batch_size, shuffle_buffer = 25, 25
@@ -136,12 +136,12 @@ def lean_mnist():
                                           random_shear=[10, 10],
                                           random_blur=10,
                                           training=True)
-                           .dataset_from_tfrecords([DATADIR+'mnist/train.tfrecord']))
+                           .from_tfrecords([DATADIR+'mnist/train.tfrecord']))
     ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                           batch_size=batch_size,
                                           repeat=True,
                                           training=False)
-                           .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
+                           .from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 
     model = tf.keras.models.Sequential([
         tf.keras.layers.Flatten(input_shape=(28, 28)),
@@ -190,7 +190,7 @@ def learn_ade20k():
                                           random_crop=crop_size,
                                           dtype=tf.float16,
                                           training=True)
-                           .dataset_from_tfrecords(tfrecords_train))
+                           .from_tfrecords(tfrecords_train))
 
     tfrecords_valid = glob(
         DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_*.tfrecords')
@@ -201,7 +201,7 @@ def learn_ade20k():
                                           random_crop=crop_size,
                                           dtype=tf.float16,
                                           training=False)
-                           .dataset_from_tfrecords(tfrecords_valid))
+                           .from_tfrecords(tfrecords_valid))
 
     # define model
     model = def_unet(tuple(crop_size+[3]), 151)  # 150class + padding area
@@ -333,15 +333,27 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
         with ZipFile(dstdir+'ADEChallengeData2016.zip', 'r') as zipObj:
             # Extract all the contents of zip file in current directory
             zipObj.extractall(dstdir)
+            
+    dstdir += 'ADEChallengeData2016/'
+    
+    print('convert grayscale images to RGB:', 'test')
+    for dirname in ['training', 'validation']:
+        imgs = glob(f'{dstdir}images/{dirname}/ADE_*.jpg')
+        gray_idxs = [i for i in range(len(imgs)) if len(Image.open(imgs[i]).getbands())<3]
+        for rmidx in gray_idxs:
+            im = Image.open(imgs[rmidx])
+            im = im.convert('RGB')
+            im.save(imgs[rmidx])
+            print('converted L to RGB:',imgs[rmidx])
 
     # plot random label sample
+    print('start check ADE20k_label', 'test')
     check_ADE20k_label()
 
-    dstdir += 'ADEChallengeData2016/'
     converter = TfrecordConverter()
 
     patchdir = dstdir+'patch/'
-    if len(glob(patchdir+'images/*/ADE_*_no*.jpg')) != 64563: # 99209?+
+    if len(glob(patchdir+'images/*/ADE_*_no*.jpg')) < 6e4:
         print('splitting imgs to patch...', flush=True)
 
         # split images into patch
@@ -382,7 +394,7 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
                 Path(path).parts[:-3] + ('annotations', dirname, Path(path).stem+'.png'))
                 for path in imgs]
 
-            converter.tfrecord_from_path_label(imgs,
+            converter.from_path_label(imgs,
                                                path_labels,
                                                dstdir +
                                                f'tfrecord/{dirname}.tfrecords',
@@ -392,7 +404,7 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
     # check converted tfrecord
     dc = DatasetCreator(
         False, 10, training=True)
-    ds, datacnt = dc.dataset_from_tfrecords([path_tfrecord])
+    ds, datacnt = dc.from_tfrecords([path_tfrecord])
     piyo = next(iter(ds.take(1)))
     plt.imshow(piyo[0][5])
 
@@ -433,7 +445,7 @@ def aug_multi_input():
     path_record = DATADIR + 'multi_input.tfrecord'
     
     # generate tfrecords in a one-line
-    TfrecordConverter().tfrecord_from_path_label(list(zip(filepaths0, filepaths1)), 
+    TfrecordConverter().from_path_label(list(zip(filepaths0, filepaths1)), 
                                                  labels, 
                                                  path_record,
                                                  n_imgin=2)    
@@ -451,7 +463,7 @@ def aug_multi_input():
     
     # define dataset
     dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
-    ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+    ds, imgcnt = dc.from_tfrecords(path_record)
     
     # define the handling of multiple inputs => just resize and concat
     # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
@@ -477,7 +489,7 @@ def aug_multi_input():
 
 if __name__ == '__main__':
     pass
-    lean_mnist()
-    # learn_ade20k()
+    # lean_mnist()
+    learn_ade20k()
     # check_ADE20k_label()
     # aug_multi_input()
