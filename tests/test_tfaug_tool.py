@@ -55,6 +55,9 @@ def test_aug_prm(prm, name, testimg, testlbl, dstdir):
     if prm.standardize:
         img = adjust_img_range(img)
         lbl = adjust_img_range(lbl)
+    else:
+        img = img.astype(np.uint8)
+        lbl = lbl.astype(np.uint8)
 
     plot_dsresult(((img, lbl),), BATCH_SIZE,
                        1, dstdir+name+'.png', 
