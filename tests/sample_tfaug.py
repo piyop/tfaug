@@ -16,67 +16,66 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 import tensorflow as tf
 from tensorflow.data.experimental import AUTOTUNE
 
-
-from tfaug import TfrecordConverter, DatasetCreator
+from tfaug import TfrecordConverter, DatasetCreator, AugmentImg
 
 DATADIR = 'testdata/tfaug/'
 
 
 def quick_toy_sample():
-    
+
     # source image and labels
-    imgpaths = ['testdata/tfaug/Lenna.png'] * 10  
+    imgpaths = ['testdata/tfaug/Lenna.png'] * 10
     labels = np.random.randint(0, 255, 10)
-    
+
     # configure and create dataset
-    dataset = DatasetCreator(shuffle_buffer=10, 
-                            batch_size=2, 
-                            repeat=True,
-                            standardize=True, # add augmentation params here
-                            training=True
-                            ).from_path(imgpaths,labels)
-    
+    dataset = DatasetCreator(shuffle_buffer=10,
+                             batch_size=2,
+                             repeat=True,
+                             standardize=True,  # add augmentation params here
+                             training=True
+                             ).from_path(imgpaths, labels)
+
     # define and compile the model
-    mbnet = tf.keras.applications.MobileNetV2(include_top=True, weights=None)    
+    mbnet = tf.keras.applications.MobileNetV2(include_top=True, weights=None)
     mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
-    
+
     # learn the model
     mbnet.fit(dataset, epochs=10, steps_per_epoch=10)
 
 
-def toy_example():    
+def toy_example():
 
     # prepare inputs and labels
     batch_size = 2
     shuffle_buffer = 10
-    filepaths = [DATADIR+'Lenna.png'] * 10    
+    filepaths = [DATADIR+'Lenna.png'] * 10
     class_labels = np.random.randint(0, 10, 10)
 
     # define tfrecord path
     path_record = DATADIR + 'multi_input.tfrecord'
-    
+
     # generate tfrecords in a one-line
-    TfrecordConverter().from_path_label(filepaths, 
-                                                 class_labels, 
-                                                 path_record) 
-    
-    # define augmentation parameters    
+    TfrecordConverter().from_path_label(filepaths,
+                                        class_labels,
+                                        path_record)
+
+    # define augmentation parameters
     aug_parms = {'random_rotation': 5,
-                'random_flip_left_right': True,
-                'random_shear': [5, 5],
-                'random_brightness': 0.2,
-                'random_crop': None,  
-                'random_blur': [0.5, 1.5]}
-    
+                 'random_flip_left_right': True,
+                 'random_shear': [5, 5],
+                 'random_brightness': 0.2,
+                 'random_crop': None,
+                 'random_blur': [0.5, 1.5]}
+
     # set augmentation and learning parameters to dataset
-    dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
+    dc = DatasetCreator(shuffle_buffer, batch_size, **
+                        aug_parms, repeat=True, training=True)
     # define dataset and number of dataset
     ds, imgcnt = dc.from_tfrecords(path_record)
-    
+
     # define the handling of multiple inputs => just resize and concat
     # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
     def concat_inputs(inputs, label):
@@ -85,30 +84,136 @@ def toy_example():
         # resized = tf.image.resize(concated, (224, 224))
         return concated, label
     ds = ds.map(concat_inputs)
-    
+
     # define the model
-    mbnet = tf.keras.applications.MobileNetV2(input_shape = [512,512,6],
+    mbnet = tf.keras.applications.MobileNetV2(input_shape=[512, 512, 6],
                                               include_top=True,
-                                               weights=None)
-    
+                                              weights=None)
+
     mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
-    
+
     # learn the model
     mbnet.fit(ds,
               epochs=10,
               steps_per_epoch=imgcnt//batch_size,)
-    
-    # evaluate the model
-    mbnet.fit(ds,
-              epochs=10,
-              steps_per_epoch=imgcnt//batch_size,)
 
-    
+
+def learn_multi_seginout_fromtfds():
+
+    import tensorflow_datasets as tfds
+    dataset, info = tfds.load('oxford_iiit_pet:3.*.*', with_info=True)
+
+    BATCH_SIZE = 2
+    RESIZE = [214, 214]
+    # create dataset from tensorflow_dataset
+    augprm = AugmentImg.params(random_crop=[64, 64],
+                               random_contrast=[.5, 1.5])
+
+    train = dataset['train']
+    valid = dataset['test']
+
+    def prepare_ds(train):
+
+        def resize(dataset):
+            img = tf.image.resize(dataset['image'], RESIZE)
+            msk = tf.image.resize(dataset['segmentation_mask'], RESIZE)
+            return (img, img, msk, msk)
+
+        extracted = train.map(resize).batch(BATCH_SIZE)
+        auged = DatasetCreator(
+            10, BATCH_SIZE, **augprm._asdict()
+        ).from_dataset(extracted,
+                      'segmentation', 2)
+
+        def cat(data):
+            return ({'in1': data['image_in0'], 'in2': data['image_in1']},
+                    tf.concat([data['label_in0'], data['label_in1']], axis=-1))
+
+        return auged.map(cat)
+
+    ds_train = prepare_ds(train)
+    ds_valid = prepare_ds(valid)
+
+    # define the model
+    model = def_branch_unet(tuple(augprm.random_crop+[3]),
+                            tuple(augprm.random_crop+[3]),
+                            2)  # 2 - input and concated mask
+
+    model.compile(optimizer=tf.keras.optimizers.Adam(0.002),
+                  loss=tf.keras.losses.CategoricalCrossentropy(
+                      from_logits=True),
+                  metrics=['categorical_accuracy'])
+
+    model.fit(ds_train,
+              epochs=10,
+              validation_data=ds_valid,
+              steps_per_epoch=info.splits['train'].num_examples//BATCH_SIZE,
+              validation_steps=info.splits['test'].num_examples//BATCH_SIZE)
+
+    # model.evaluate(ds_valid,
+    #                steps=valid_cnt//batch_size,
+    #                verbose=2)
+
+
+def def_down_stack(input_size):
+
+    # define downstack model
+    mbnet2 = tf.keras.applications.MobileNetV2(input_size,
+                                               include_top=False,
+                                               weights='imagenet')
+
+    # Use the activations of these layers
+    layer_names = [
+        'block_16_project',      # 8x8
+        'block_13_expand_relu',  # 16x16
+        'block_6_expand_relu',   # 32x32
+        'block_3_expand_relu',   # 64x64
+        'block_1_expand_relu',   # 128x128
+    ]
+    mbnet2_outputs = [mbnet2.get_layer(name).output for name in layer_names]
+
+    # Create the feature extraction model
+    down_stack = tf.keras.Model(inputs=mbnet2.input, outputs=mbnet2_outputs)
+
+    down_stack.trainable = False
+
+    return down_stack
+
+
+def def_branch_unet(input_size1, input_size2, output_filters):
+
+    down_stack1 = def_down_stack(input_size1)
+    down_stack2 = def_down_stack(input_size2)
+
+    # define upstack
+    upstack = [upsample(2**i) for i in range(7, 3, -1)]
+
+    # define input
+    inputs1 = tf.keras.layers.Input(input_size1)
+    inputs2 = tf.keras.layers.Input(input_size2)
+
+    # calc down stack
+    skips1 = down_stack1(inputs1)
+    skips2 = down_stack2(inputs2)
+    x, skips1 = skips1[0], skips1[1:]
+    x2 = skips2[0]
+    x = tf.keras.layers.Concatenate()([x, x2])
+
+    # calc up stack
+    for up, skip in zip(upstack, skips1):
+        x = up(x)
+        x = tf.keras.layers.Concatenate()([x, skip])
+
+    # output dimension
+    x = upsample(output_filters)(x)
+
+    # define output of the model
+    return tf.keras.Model(inputs={'in1': inputs1, 'in2': inputs2}, outputs=x)
 
 
 def lean_mnist():
     """
-    tfaug application for classification
+    tfaug classification example
 
     Returns
     -------
@@ -176,7 +281,7 @@ def learn_ade20k():
     # donwload
     overlap_buffer = 256 // 4
     download_and_convert_ADE20k(crop_size, overlap_buffer)
-    
+
     # define training and validation dataset using tfaug:
     tfrecords_train = glob(
         DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/training_*.tfrecords')
@@ -333,18 +438,19 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
         with ZipFile(dstdir+'ADEChallengeData2016.zip', 'r') as zipObj:
             # Extract all the contents of zip file in current directory
             zipObj.extractall(dstdir)
-            
+
     dstdir += 'ADEChallengeData2016/'
-    
+
     print('convert grayscale images to RGB:', 'test')
     for dirname in ['training', 'validation']:
         imgs = glob(f'{dstdir}images/{dirname}/ADE_*.jpg')
-        gray_idxs = [i for i in range(len(imgs)) if len(Image.open(imgs[i]).getbands())<3]
+        gray_idxs = [i for i in range(len(imgs)) if len(
+            Image.open(imgs[i]).getbands()) < 3]
         for rmidx in gray_idxs:
             im = Image.open(imgs[rmidx])
             im = im.convert('RGB')
             im.save(imgs[rmidx])
-            print('converted L to RGB:',imgs[rmidx])
+            print('converted L to RGB:', imgs[rmidx])
 
     # plot random label sample
     print('start check ADE20k_label', 'test')
@@ -395,10 +501,10 @@ def download_and_convert_ADE20k(input_size, overlap_buffer):
                 for path in imgs]
 
             converter.from_path_label(imgs,
-                                               path_labels,
-                                               dstdir +
-                                               f'tfrecord/{dirname}.tfrecords',
-                                               image_per_shards)
+                                      path_labels,
+                                      dstdir +
+                                      f'tfrecord/{dirname}.tfrecords',
+                                      image_per_shards)
 
     path_tfrecord = DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_1.tfrecords'
     # check converted tfrecord
@@ -437,34 +543,35 @@ def aug_multi_input():
     # prepare inputs and labels
     batch_size = 2
     shuffle_buffer = 10
-    filepaths0 = [DATADIR+'Lenna.png'] * 10    
+    filepaths0 = [DATADIR+'Lenna.png'] * 10
     filepaths1 = [DATADIR+'Lenna_crop.png'] * 10
     labels = np.random.randint(0, 10, 10)
 
     # define tfrecord path
     path_record = DATADIR + 'multi_input.tfrecord'
-    
+
     # generate tfrecords in a one-line
-    TfrecordConverter().from_path_label(list(zip(filepaths0, filepaths1)), 
-                                                 labels, 
-                                                 path_record,
-                                                 n_imgin=2)    
-    
-    # define augmentation parameters    
+    TfrecordConverter().from_path_label(list(zip(filepaths0, filepaths1)),
+                                        labels,
+                                        path_record,
+                                        image_per_shard=2)
+
+    # define augmentation parameters
     aug_parms = {'standardize': False,
-                'random_rotation': 5,
-                'random_flip_left_right': True,
-                'random_zoom': [0.2, 0.2],
-                'random_shear': [5, 5],
-                'random_brightness': 0.2,
-                'random_crop': None,  
-                'random_blur': [0.5, 1.5],
-                'num_transforms': 10}
-    
+                 'random_rotation': 5,
+                 'random_flip_left_right': True,
+                 'random_zoom': [0.2, 0.2],
+                 'random_shear': [5, 5],
+                 'random_brightness': 0.2,
+                 'random_crop': None,
+                 'random_blur': [0.5, 1.5],
+                 'num_transforms': 10}
+
     # define dataset
-    dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
+    dc = DatasetCreator(shuffle_buffer, batch_size, **
+                        aug_parms, repeat=True, training=True)
     ds, imgcnt = dc.from_tfrecords(path_record)
-    
+
     # define the handling of multiple inputs => just resize and concat
     # multiple inputs were named {'image_in0', 'image_in1' , ...} in inputs dictionary
     def concat_inputs(inputs, label):
@@ -473,14 +580,14 @@ def aug_multi_input():
         # resized = tf.image.resize(concated, (224, 224))
         return concated, label
     ds = ds.map(concat_inputs)
-    
+
     # define the model
-    mbnet = tf.keras.applications.MobileNetV2(input_shape = [512,512,6],
+    mbnet = tf.keras.applications.MobileNetV2(input_shape=[512, 512, 6],
                                               include_top=True,
-                                               weights=None)
-    
+                                              weights=None)
+
     mbnet.compile(optimizer="adam", loss="mse", metrics=["mae"])
-    
+
     # learn the model
     mbnet.fit(ds,
               epochs=10,
@@ -490,6 +597,6 @@ def aug_multi_input():
 if __name__ == '__main__':
     pass
     # lean_mnist()
-    learn_ade20k()
+    # learn_ade20k()
     # check_ADE20k_label()
-    # aug_multi_input()
+    learn_multi_seginout_fromtfds()

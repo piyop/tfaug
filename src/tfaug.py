@@ -11,6 +11,7 @@ import os
 import json
 import warnings
 from collections import OrderedDict, namedtuple
+from itertools import permutations
 from tqdm import tqdm
 
 import numpy as np
@@ -45,7 +46,6 @@ class DatasetCreator():
     def __init__(self,
                  shuffle_buffer: int,
                  batch_size: int,
-                 label_type: str = None,
                  repeat: bool = False,
                  preproc: Callable = None,
                  augmentation: bool = True,
@@ -56,9 +56,6 @@ class DatasetCreator():
         Args:
             shuffle_buffer (int): shuffle buffer size. if you don't need shuffle, use shuffle_buffer=None.
             batch_size (int): batch size..
-            label_type (str, optional): 'segmentation' or 'class'.
-                automatically load from json file after ver.0.1.0.5.
-                Defaults to None.
             repeat (bool, optional): repeat every datasets or use once. Defaults to False.
             preproc (Callable, optional): preprocess callback function before augment image. The default is None
                 proprocess function must take (img, label) and return (img, label). Defaults to None.
@@ -80,13 +77,6 @@ class DatasetCreator():
         self._preproc = preproc
         self._augmentation = augmentation
 
-        self._label_type = None
-        if label_type is not None:
-            warnings.warn('''labe_type is determined automatically after ver.0.1.0.5, 
-                          so it is not need anymore. deprecate in future.''',
-                          DeprecationWarning)
-            self._label_type = label_type
-
     def _decode_raw(self, dtype):
 
         def decode_raw(x):
@@ -94,9 +84,11 @@ class DatasetCreator():
 
         return decode_raw
 
-    def _check_types(self, label_types, imgs_dtypes, imgs_shapes, label_shapes):
+    def _check_types(self, label_types, imgs_dtypes, imgs_shapes, labels_shapes,
+                     labels_dtypes):
 
-        label_type, imgs_dtype, imgs_shape, label_shape = None, None, None, None
+        label_type, imgs_dtype, imgs_shape, labels_shape, labels_dtype\
+            = None, None, None, None, None
         if len(label_types) > 0:
             #check label accordance
             assert all([label_type == label_types[0] for label_type in label_types]), (
@@ -116,16 +108,26 @@ class DatasetCreator():
                 "imgs_shape is not accordance:")
             imgs_shape = imgs_shapes[0]
 
-        if len(label_shapes) > 0:
+        if len(labels_shapes) > 0:
             #check dtype accordance
-            assert all([label_shape == label_shapes[0] for label_shape in label_shapes]), (
+            assert all([labels_shape == labels_shapes[0] for labels_shape in labels_shapes]), (
                 "label_shape is not accordance:")
-            label_shape = label_shapes[0]
+            labels_shape = labels_shapes[0]
 
-        return label_type, imgs_dtype, imgs_shape, label_shape
+        if len(labels_dtypes) > 0:
+            #check dtype accordance
+            assert all([labels_dtype == labels_dtypes[0]
+                        for labels_dtype in labels_dtypes]), (
+                "imgs_dtype is not accordance:")
+            labels_dtype = labels_dtypes[0]
 
-    def _decoder_creator(self, label_type, imgs_dtype, imgs_shape=None):
+        return label_type, imgs_dtype, imgs_shape, labels_shape, labels_dtype
 
+    def _decoder_creator(self, label_type, labels_dtype, labels_shape,
+                         imgs_dtype, imgs_shape=None):
+
+
+        # TODO:label_typeをimageにも定義し、全く同じ処理でimageとlabelを処理するようにする
         def decoder(tfexamples):
             decoded = []
             for i, img_dtype in enumerate(imgs_dtype):
@@ -135,18 +137,27 @@ class DatasetCreator():
                 else:
                     assert imgs_shape is not None, "raw format needs imgs_shape to decode"
                     decoded.append(tf.reshape(tf.map_fn(self._decode_raw(
-                        tf.float32), tfexamples[f"image_in{i}"], dtype=tf.float32), 
+                        tf.float32), tfexamples[f"image_in{i}"], dtype=tf.float32),
                         [-1, *imgs_shape[i]]))
 
-            if label_type == 'class':
-                decoded.append(tfexamples["label"])
-            elif label_type == 'segmentation':
-                decoded.append(tf.map_fn(tf.image.decode_png,
-                                         tfexamples["label"], dtype=tf.uint8))
+            for i, label_dtype in enumerate(labels_dtype):
+                if label_type == 'class':
+                    decoded.append(tfexamples[f"label_in{i}"])
+                elif label_type == 'segmentation':
+                    if label_dtype == 'uint8':
+                        decoded.append(
+                            tf.map_fn(tf.image.decode_png, 
+                                      tfexamples[f"label_in{i}"], dtype=tf.uint8))
+                    else:
+                        assert labels_shape is not None, "raw format needs labels_shape to decode"
+                        decoded.append(tf.reshape(tf.map_fn(self._decode_raw(
+                            tf.float32), tfexamples[f"label_in{i}"], dtype=tf.float32),
+                            [-1, *labels_shape[i]]))
+                        
             return decoded
         return decoder
 
-    def _gen_example(self, label_type, imgs_dtype, imgs_shape):
+    def _gen_example(self, label_type, labels_dtype,  imgs_dtype, imgs_shape):
 
         example_formats = {}
         for i, dtype in enumerate(imgs_dtype):
@@ -156,23 +167,46 @@ class DatasetCreator():
         # set label type
         if label_type is not None and label_type != 'None':
             _, dtype = DatasetCreator.label_type_dict[label_type]
-            example_formats["label"] = tf.io.FixedLenFeature([], dtype=dtype)
+            for i, label_dtype in enumerate(labels_dtype):
+                example_formats[f"label_in{i}"] = tf.io.FixedLenFeature([],
+                                                                        dtype=dtype)
 
         return example_formats
+    
+    def _path_decorder(self, imgtype):
+
+        def decode_jpeg(path_img):
+            return tf.image.decode_jpeg(tf.io.read_file(path_img))
+    
+        def decode_png(path_img):
+            return tf.image.decode_png(tf.io.read_file(path_img))
+    
+        if imgtype == '.png':
+            decode_func = decode_png
+        elif imgtype == '.jpeg':
+            decode_func = decode_jpeg
+        else:
+            raise NotImplementedError('imgtype must specify jpeg or png')
+            
+        return decode_func
+            
 
     def from_path(self, img_paths: List[str],
-                          labels: Union[List[str],
-                                        List[int], np.ndarray] = None,
-                          imgtype: str = 'png') -> tf.data.Dataset:
+                  labels: Union[List[str],
+                                List[int], np.ndarray] = None) -> tf.data.Dataset:
         """create dataset from filepaths
+        Currently this method only supports .png and .jpg images.      
         
 
         Args:
-            img_paths (List[str]): source image paths. The images must be same size.
+            img_paths (Union[List[str], List[List[str]]]): source image paths.
+                These images must be same size.
+                if you have multiple input images, you should specifiy paths like
+                [[image1, image2],[image1, image2], ...]
+                
             labels (Union[List[str], List[int], np.ndarray], optional): filepaths 
                 or values of labels. if use image files, '.png' format is required.
                 Defaults to None.
-            imgtype (str, optional): 'png' or 'jpg'. Defaults to 'png'.
 
         Raises:
             NotImplementedError: if image type is not in (png, jpg).
@@ -183,34 +217,26 @@ class DatasetCreator():
         """
 
         # set label format
-        label_type = get_label_type(labels)
+        label_type, num_in_labels = get_feature_type(labels)
+        img_feature_type, num_in_imgs = get_feature_type(img_paths)
 
-        def decode_jpeg(path_img):
-            return tf.image.decode_jpeg(tf.io.read_file(path_img))
-
-        def decode_png(path_img):
-            return tf.image.decode_png(tf.io.read_file(path_img))
-
-        if imgtype == 'png':
-            decode_func = decode_png
-        elif imgtype == 'jpeg':
-            decode_func = decode_jpeg
-        else:
-            raise NotImplementedError('imgtype must specify jpeg or png')
-
-        # read_file
-        zipped = tf.data.Dataset.from_tensor_slices(
-            img_paths).map(decode_func, num_parallel_calls=AUTOTUNE)
-
-        # TODO: get input shape from ds_aug
-        if labels is not None:
-            ds_labels = tf.data.Dataset.from_tensor_slices(labels)
-            if label_type == 'segmentation':
-                ds_labels = ds_labels.map(
-                    decode_png, num_parallel_calls=AUTOTUNE)
-            zipped = tf.data.Dataset.zip((zipped, ds_labels))
-        else:
-            zipped = tf.data.Dataset.zip((zipped, ))
+        
+        # read img file          
+        img_paths = list(zip(*img_paths)) if num_in_imgs > 1 else [img_paths]
+        labels = list(zip(*labels)) if num_in_labels > 1 else [labels]
+        features = img_paths + labels
+        in_types = [img_feature_type] * num_in_imgs + [label_type] * num_in_labels
+        
+        datasets = []   
+        for feature, in_type in zip(features, in_types): 
+            ds = tf.data.Dataset.from_tensor_slices(list(feature))        
+            if in_type == 'segmentation':                
+                label_decoder = self._path_decorder(os.path.splitext(feature[0])[1])
+                ds = ds.map(label_decoder, num_parallel_calls=AUTOTUNE)
+            
+            datasets.append(ds)
+            
+        zipped = tf.data.Dataset.zip(tuple(datasets))
 
         if self._shuffle_buffer:
             zipped = zipped.shuffle(self._shuffle_buffer)
@@ -222,65 +248,66 @@ class DatasetCreator():
         if self._preproc:
             batch = batch.map(self._preproc)
 
-        batch = self._get_aug_ds(batch, label_type)
-        
+        batch = self.from_dataset(batch, label_type, num_in_imgs)
+
         return batch.prefetch(AUTOTUNE)
 
     def _ds_to_dict(self, dict_keys):
         """define callback function for converting dataset to dictionary
 
         Args:
-            dict_keys (list): dictionary keys.
+            dict_keys (list): output dictionary keys.
 
         Returns:
             Callable : call back function for tf.Data.dataset.map().
 
         """
         dict_keys = list(dict_keys)
-            
+
         def ds_to_dict(*args):
             return {key: args[i] for i, key
-                    in enumerate(dict_keys[:-1])}, args[-1]
+                    in enumerate(dict_keys)}
         return ds_to_dict
 
     def _apply_aug(self, aug_funs):
         def apply_aug(*args):
             return [aug_fun(arg) for (arg, aug_fun) in zip(args, aug_funs)] \
-                if len(aug_funs) > 1 else aug_funs[0](args[0])                    
+                if len(aug_funs) > 1 else aug_funs[0](args[0])
             # return [aug_fun(arg) for (arg, aug_fun) in zip(args, aug_funs)]
-        
+
         return apply_aug
 
-    def _get_inputs_shapes(self, ds, label_type):
+    def _get_inputs_shapes(self, ds, label_type, num_feature):
         """ get input shapes from ds(tf.Data.Dataset)
 
         Args:
             ds (tf.Data.Dataset): input dataset.
             label_type (str): input label type(segmentation or classification)
+            num_feature (int): number of image inputs
 
         Returns:
             ret_in (List): list of input image shapes tensor.
-            ret_label (List): label shape.
+            ret_label (List): list of label shapes tensor.
 
         """
 
         inputs = next(iter(ds))
 
-        ret_in, ret_label = [], None
-
-        if label_type is not None:
-            ret_label = inputs[-1].shape
-            inputs = inputs[:-1]
-
+        ret_in, ret_label = [], []
+        
+        # parse images
         if (len(inputs) > 1 and
-            self._isnested(inputs)):  # multiple inputs
-            for data_in in inputs:
+                isnested(inputs)):  # multiple inputs
+            for data_in in inputs[:num_feature]:
                 ret_in.append(data_in.shape)
-        # elif self._isnested(inputs):
-        #         # strip tuple
-        #         ret_in = inputs[0].shape
         else:
             ret_in.append(inputs[0].shape)
+        
+        # parse labels
+        if (len(inputs) > 1) and label_type is not None:
+            inputs = inputs[num_feature:]
+            for data_in in inputs:
+                ret_label.append(data_in.shape)
 
         return ret_in, ret_label
 
@@ -288,8 +315,9 @@ class DatasetCreator():
 
         if ratio_samples is None:
             (ds, num_img, label_type, imgs_dtype,
-             imgs_shape, label_shape) = self._get_ds_tfrecord(self._shuffle_buffer,
-                                                              path_tfrecords)
+             imgs_shape, labels_shape,
+             labels_dtype) = self._get_ds_tfrecord(self._shuffle_buffer,
+                                                   path_tfrecords)
         else:
             assert len(
                 path_tfrecords[0][0]) > 1, "if use ratio_samples, you must use a 2-d list"
@@ -301,29 +329,31 @@ class DatasetCreator():
                 list(zip(*dss))[0], ratio_samples)
             num_img = sum(list(zip(*dss))[1])
 
-            label_types, imgs_dtypes, imgs_shapes, label_shapes = list(
-                zip(*dss))[2:]
+            (label_types, imgs_dtypes,
+             imgs_shapes, labels_shapes,
+             labels_dtypes) = list(zip(*dss))[2:]
             (label_type, imgs_dtype,
-             imgs_shape, label_shape) = self._check_types(label_types,
-                                                          imgs_dtypes,
-                                                          imgs_shapes,
-                                                          label_shapes)
+             imgs_shape, labels_shape,
+             labels_dtype) = self._check_types(label_types,
+                                               imgs_dtypes,
+                                               imgs_shapes,
+                                               labels_shapes,
+                                               labels_dtypes)
 
-        example_formats = self._gen_example(label_type, imgs_dtype, imgs_shape)
-        decoder = self._decoder_creator(label_type, imgs_dtype, imgs_shape)
+        example_formats = self._gen_example(label_type, labels_dtype,
+                                            imgs_dtype, imgs_shape)
+        decoder = self._decoder_creator(label_type, labels_dtype, labels_shape, 
+                                        imgs_dtype, imgs_shape)
 
         ds_aug = (ds.batch(self._batch_size)
                   .apply(tf.data.experimental.parse_example_dataset(example_formats))
                   .map(decoder, num_parallel_calls=AUTOTUNE))
 
-        return ds_aug, num_img, label_type, example_formats
-
-    def _isnested(self, inputs_shape):
-        return (isinstance(inputs_shape, list) or isinstance(inputs_shape, tuple))
+        return ds_aug, num_img, label_type, imgs_dtype, example_formats
 
     def from_tfrecords(self,
-                               path_tfrecords: Union[List[str], List[List[str]]],
-                               ratio_samples: List[float] = None) -> Tuple[tf.data.Dataset, int]:
+                       path_tfrecords: Union[List[str], List[List[str]]],
+                       ratio_samples: List[float] = None) -> Tuple[tf.data.Dataset, int]:
         """create dataset from tfrecords        
 
         Args:
@@ -335,72 +365,98 @@ class DatasetCreator():
 
         Returns:
             dataset (tf.data.Dataset): dataset generator.                
-                if tfrecords have multiple input images, this dataset generator generate
+                If tfrecords have multiple input images, 
+                this dataset generator generate
                 a tuple of dictionary and label like 
                 ({'image_in0':data2, 'image_in1':data2,...,}, labels).
-            num_img (int): the number of images in all tfrecord files.
+            num_img (int): The number of images in all tfrecord files.
 
         """
-        if not self._isnested(path_tfrecords):
+        if not isnested(path_tfrecords):
             path_tfrecords = [path_tfrecords]
 
-        (ds_aug, num_img, label_type, example_formats
+        (ds_aug, num_img, label_type, imgs_dtype, example_formats
          ) = self._get_decoded_ds(path_tfrecords, ratio_samples)
         if self._preproc:
             ds_aug = ds_aug.map(self._preproc)
 
-        ds_aug = self._get_aug_ds(ds_aug, label_type,
+        ds_aug = self.from_dataset(ds_aug, label_type, len(imgs_dtype),
                                   data_names=example_formats.keys())
 
         return ds_aug.prefetch(AUTOTUNE), num_img
+            
 
-    def _get_aug_ds(self, ds_org, label_type, data_names=None):
+    def from_dataset(self, ds_org, label_type, num_feature, data_names=None):
+        """
+        generate augmented dataset from tf.Data.Dataset
 
-        inputs_shape, input_label_shape = self._get_inputs_shapes(
-            ds_org, label_type)
+        Args:
+            ds_org (tf.data.Dataset): Original dataset. If original dataset
+                    has multiple inputs and labels, ds_org must generate 
+                    date with tuple(Tensor(batch of input)) * num_features
+            label_type (str): Segmentation or class.
+            num_feature (int): Number of input features.
+            data_names (List[str], optional): If num_features > 1, 
+                        this option will used as key of output dict.
+                        Defaults to None.
+
+        Returns:
+            ds_aug (tf.data.Dataset): augmented dataset.
+        """
+
+        inputs_shape, input_labels_shape = self._get_inputs_shapes(
+            ds_org, label_type, num_feature)
         self._datagen_confs['input_shape'] = inputs_shape
-        self._datagen_confs['input_label_shape'] = input_label_shape
+        self._datagen_confs['input_label_shape'] = input_labels_shape
 
         self._datagen_confs['clslabel'], _ = DatasetCreator.label_type_dict[label_type]
 
         if self._augmentation:
             seeds = np.random.uniform(0, 2**32, (2**16))
 
+            # aug for image
             aug_funs = []
             for shape in inputs_shape:
                 # for training set
                 self._datagen_confs['input_shape'] = shape
                 aug_funs.append(AugmentImg(**self._datagen_confs,
                                            seeds=seeds))
-            if label_type == 'segmentation':
-                # for validation set
-                label_aug = self._datagen_confs.copy()
-                label_aug['input_shape'] = input_label_shape
-                label_aug['random_brightness'] = None
-                label_aug['random_contrast'] = None
-                label_aug['random_saturation'] = None
-                label_aug['random_hue'] = None
-                label_aug['random_noise'] = None
-                label_aug['random_blur'] = None
-                aug_funs.append(AugmentImg(**label_aug,
-                                           seeds=seeds))
-            elif label_type == 'class':
-                aug_funs.append(lambda x: x)
+                
+            # aug for label
+            label_aug = self._datagen_confs.copy()
+            label_aug['random_brightness'] = None
+            label_aug['random_contrast'] = None
+            label_aug['random_saturation'] = None
+            label_aug['random_hue'] = None
+            label_aug['random_noise'] = None
+            label_aug['random_blur'] = None
+            for shape in input_labels_shape:
+                label_aug['input_shape'] = shape
+                if label_type == 'segmentation':
+                    aug_funs.append(AugmentImg(**label_aug,
+                                               seeds=seeds))
+                elif label_type == 'class':
+                    aug_funs.append(lambda x: x)
 
             aug_fun = self._apply_aug(aug_funs)
 
             ds_aug = ds_org.map(aug_fun, num_parallel_calls=AUTOTUNE)
 
-        if len(inputs_shape) > 1:
-            # if multiple inputs, output as dict
+        if len(inputs_shape) > 1 or len(input_labels_shape) > 1:
+            if data_names is None:
+                data_names = [f'image_in{i}' for i in range(len(inputs_shape))
+                              ] + [f'label_in{i}' for i 
+                                   in range(len(input_labels_shape))]
+                                   
+            # if multiple inputs or labels, output as dict
             ds_aug = ds_aug.map(self._ds_to_dict(data_names))
 
         return ds_aug
 
     def _get_ds_tfrecord(self, shuffle_buffer, path_tfrecords):
 
-        (num_img, label_types, imgs_dtypes,
-         imgs_shapes, label_shapes) = 0, [], [], [], []
+        (num_img, label_types, labels_dtypes, imgs_dtypes,
+         imgs_shapes, labels_shapes) = 0, [], [], [], [], []
         for path_tfrecord in path_tfrecords:
             with open(os.path.splitext(path_tfrecord)[0]+'.json') as fp:
                 fileds = json.load(fp)
@@ -412,13 +468,17 @@ class DatasetCreator():
                     imgs_dtypes.append(fileds['dtypes'])
                 if 'imgs_shapes' in fileds.keys():
                     imgs_shapes.append(fileds['imgs_shapes'])
-                if 'label_shape' in fileds.keys():
-                    label_shapes.append(fileds['label_shape'])
+                if 'labels_shape' in fileds.keys():
+                    labels_shapes.append(fileds['labels_shape'])
+                if 'labels_dtype' in fileds.keys():
+                    labels_dtypes.append(fileds['labels_dtype'])
 
-        label_type, imgs_dtype, imgs_shape, label_shape = self._check_types(label_types,
-                                                                            imgs_dtypes,
-                                                                            imgs_shapes,
-                                                                            label_shapes)
+        (label_type, imgs_dtype,
+         imgs_shape, labels_shape, labels_dtype) = self._check_types(label_types,
+                                                                     imgs_dtypes,
+                                                                     imgs_shapes,
+                                                                     labels_shapes,
+                                                                     labels_dtypes)
 
         # define dataset
         ds = tf.data.TFRecordDataset(
@@ -429,10 +489,15 @@ class DatasetCreator():
         if shuffle_buffer:
             ds = ds.shuffle(shuffle_buffer)
 
-        return ds, num_img, label_type, imgs_dtype, imgs_shape, label_shape
+        return (ds, num_img, label_type, imgs_dtype,
+                imgs_shape, labels_shape, labels_dtype)
 
 
-def get_label_type(labels: Union[List[int], List[str], np.ndarray]) -> str:
+def isnested(inputs_shape):
+    return (isinstance(inputs_shape, list) or isinstance(inputs_shape, tuple))
+
+
+def get_feature_type(labels: Union[List[int], List[str], np.ndarray]) -> str:
     """check label type in labels[0]
     
 
@@ -441,22 +506,39 @@ def get_label_type(labels: Union[List[int], List[str], np.ndarray]) -> str:
 
     Returns:
         label_type (str): 'segmentation' or 'class'.
+        num_feature (int): number of features
 
     """
 
-    label_type = None
-    if labels is not None:
-        #check label type
-        assert (isinstance(labels, list) or isinstance(labels, tuple)) \
-            or len(labels) > 0, \
-            'labels is empty list or tuple. if do not use label, use None to labels'
+    if labels is None:
+        return None, 0
 
-        label_type = 'segmentation' if isinstance(labels[0], str) or \
-            (isinstance(labels, np.ndarray) and labels.ndim >= 3) or \
-            (isinstance(labels, list) and isinstance(labels[0], np.ndarray)) \
-            else 'class'
+    #check label type
+    assert (isinstance(labels, list) or isinstance(labels, tuple)) \
+        or len(labels) > 0, \
+        'labels is empty list or tuple. if do not use label, use None to labels'
 
-    return label_type
+    if isinstance(labels[0], int) or\
+            (isinstance(labels, np.ndarray) and labels.ndim <= 1):
+        return 'class', 1
+    elif isnested(labels) and isnested(labels[0]) and isinstance(labels[0][0], int):
+        return 'class', len(labels[0])
+   
+
+    elif ((isnested(labels) and isnested(labels[0]))
+          and ((isinstance(labels[0][0], str) and
+                len(labels[0]) > 1) or
+               (isinstance(labels[0][0], np.ndarray) and
+                labels[0][0].ndim >= 2))) or\
+        (isnested(labels) and isinstance(labels[0], np.ndarray) and
+         labels[0].ndim >= 4) or\
+            (isinstance(labels, np.ndarray) and labels.ndim >= 5):
+        return 'segmentation', len(labels[0])
+
+    elif isinstance(labels[0], str) or \
+        (isinstance(labels, np.ndarray) and labels.ndim >= 3) or \
+            (isinstance(labels, list) and isinstance(labels[0], np.ndarray)):
+        return 'segmentation', 1
 
 
 class TfrecordConverter():
@@ -499,65 +581,82 @@ class TfrecordConverter():
         """Returns an int64_list from a bool / enum / int / uint."""
         return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-    def _image_reader(self, n_imgin):
+    def _image_reader(self, n_feature):
         def image_reader(path):
-            if n_imgin == 1:
+            if n_feature == 1:
                 return [np.array(Image.open(path))]
             else:
-                assert len(path) == n_imgin, (
+                assert len(path) == n_feature, (
                     "n_inimg >= 2 must use 2Dlist including n_inimg images in each element")
                 return [np.array(Image.open(impath)) for impath in path]
 
         return image_reader
 
     def from_path_label(self, path_imgs: List[str],
-                                 labels: Union[List[str], List[int], np.ndarray],
-                                 path_out: str,
-                                 image_per_shard: int = None,
-                                 n_imgin: int = 1):
+                        labels: Union[List[str], List[int], np.ndarray],
+                        path_out: str,
+                        image_per_shard: int = None):
         """Convert from image paths
         
         image type must be the same.
         only 1-channel is supported on tiff format
 
         Args:
-            path_imgs (List[str]): paths to images. if n_imgin > 1, 
-                use 2d List which every element
+            path_imgs (List[str]): paths to images. If you have multile input images, 
+                use 2d List which every elements contain a group of input images.
             labels (Union[List[str], List[int], np.ndarray]): if segmentation,
                 path to the label images 
-                else if classification, int class labels.
+                else if classification, list of int class labels.
+                If you have multile labels, 
+                use 2d List which every elements contain a group of input labels
             path_out (str): output path.
             image_per_shard (int, optional): the number of images when split 
                 images to shards. Defaults to None.
-            n_inimg (int): the number of input images (multiple input images).
-                if use n_inimg >= 2, you must use 2D list including n_inimg images 
-                in each element to path_imgs.
-                Defaults to 1
 
         Returns:
             None.
         """
 
+        img_type, n_imgin = get_feature_type(path_imgs)
+
         image_reader = self._image_reader(n_imgin)
+        
+        
+        label_type, n_lblin = get_feature_type(labels)
+        reader_label = None
+        if label_type == 'segmentation':
+            reader_label = self._image_reader(n_lblin)
+        elif label_type == 'class':
+            reader_label = self._ary_label_reader(n_lblin)
+        
         # decode and save as integer png
         self.save_tfrecord(path_imgs, path_out,
-                                     lambda x: image_reader(x),
-                                     labels,
-                                     image_per_shard,
-                                     n_imgin)
+                           lambda x: image_reader(x),
+                           label_type,
+                           labels,
+                           reader_label,
+                           image_per_shard)
 
-    def _writejson(self, path_record, imgcnt, label_type, dtypes, imgs_shapes, label_shape):
+    def _writejson(self, path_record, imgcnt, label_type, dtypes,
+                   imgs_shapes, labels_shape, labels_dtype):
         with open(os.path.splitext(path_record)[0]+'.json', 'w') as file:
             json.dump({'imgcnt': imgcnt,
                        'label_type': label_type,
                        'dtypes': dtypes,
                        'imgs_shapes': imgs_shapes,
-                       'label_shape': label_shape}, file)
+                       'labels_shape': labels_shape,
+                       'labels_dtype': labels_dtype}, file)
+            
+    def _ary_label_reader(self, n_lblin):
+        if n_lblin > 1:
+            return lambda x :[np.array(i) for i in x]
+        else:
+            return lambda x :[np.array(x)]
 
     def from_ary_label(self, ary: Union[List[np.ndarray], np.ndarray],
-                                labels: Union[List[int], List[np.ndarray], np.ndarray],
-                                path_out: str,
-                                image_per_shard: int = None):
+                       labels: Union[List[int], List[np.ndarray], np.ndarray],
+                       path_out: str,
+                       image_per_shard: int = None):
         """Convert from image arrays
         
 
@@ -574,54 +673,67 @@ class TfrecordConverter():
 
         """
 
+        img_type, n_imgin = get_feature_type(ary)
+
+        if n_imgin > 1:
+            def read_func(x): return [np.array(i) for i in x]
+        else:
+            def read_func(x): return [np.array(x)]
+
+        label_type, n_lblin = get_feature_type(labels)
+        reader_label = self._ary_label_reader(n_lblin)
+            
         self.save_tfrecord(ary,
-                                     path_out,
-                                     lambda x: [np.array(x)],
-                                     labels,
-                                     image_per_shard)
+                           path_out,
+                           read_func,
+                           label_type,
+                           labels,
+                           reader_label,
+                           image_per_shard)
+
+    def _segmentation_feature(self, img):
+        if img.dtype == np.uint8:
+            return self._bytes_feature(self._np_to_pngstr(img))
+        elif img.dtype == np.float32 or img.dtype == np.float16:
+            return self._bytes_feature(img.tobytes())
+        else:
+            assert True, 'undifined segmentation feature dtype' + img.dtype
 
     def _exformat_from_array(self, iimg, label_type, ilabel=None):
 
         feature = {}
-        dtypes, imgs_shapes, label_shape = [], [], None
+        dtypes, imgs_shapes, labels_shape, labels_dtypes = [], [], [], []
 
         for i, img in enumerate(iimg):
             dtypes.append(img.dtype.name)
             # add channel axis if ndim < 3
-            imgshape = [*img.shape, 1] if img.ndim < 3 else img.shape
-            imgs_shapes.append(imgshape)
+            imgs_shapes.append([*img.shape, 1] if img.ndim < 3 else img.shape)
 
-            if img.dtype == np.uint8:
-                feature[f'image_in{i}'] = self._bytes_feature(
-                    self._np_to_pngstr(img))
-            elif img.dtype == np.float32 or img.dtype == np.float16:
-                feature[f'image_in{i}'] = self._bytes_feature(
-                    img.tobytes())
+            feature[f'image_in{i}'] = self._segmentation_feature(img)
 
         if ilabel is not None:
-            # define label feature
-            if label_type == 'segmentation':
-                def label_feature(ilabel): return self._bytes_feature(
-                    self._np_to_pngstr(ilabel))
-            else:
-                def label_feature(ilabel): return self._int64_feature(ilabel)
 
-        if ilabel is not None:
-            feature['label'] = label_feature(ilabel)
-            if label_type == 'segmentation':
-                label_shape = [*ilabel.shape,
-                               1] if ilabel.ndim < 3 else ilabel.shape
-            else:
-                label_shape = [1]
+            for i, label in enumerate(ilabel):
+                labels_dtypes.append(label.dtype.name)
+                
+                # define label feature
+                if label_type == 'segmentation':
+                    feature[f'label_in{i}'] = self._segmentation_feature(label)
+                    labels_shape.append([*label.shape,
+                                          1] if label.ndim < 3 else label.shape)
+                else:
+                    feature[f'label_in{i}'] = self._int64_feature(label)
+                    labels_shape.append([1])
+               
+                
 
-        return feature, dtypes, imgs_shapes, label_shape
+        return feature, dtypes, imgs_shapes, labels_shape, labels_dtypes
 
-    def save_tfrecord(self, imgs, path_out, reader_func,
-                                labels=None,
-                                image_per_shard=None,
-                                n_inimg=1):
+    def save_tfrecord(self, imgs, path_out, reader_func, label_type,
+                      labels=None, reader_label=None,
+                      image_per_shard=None):
 
-        label_type = get_label_type(labels)
+        label = None
 
         prefix, suffix = os.path.splitext(path_out)
 
@@ -636,9 +748,9 @@ class TfrecordConverter():
             os.makedirs(os.path.dirname(path_record), exist_ok=True)
             writer = tf.io.TFRecordWriter(path_record)
             # save tfrecord
-            dtype_old, imgs_shape_old, label_shape_old = 0,0,0
+            dtype_old, imgs_shape_old, label_shape_old, label_dtype_old = 0, 0, 0, 0
             # to avoid syntax error
-            dtype, imgs_shape, label_shape = None, None, None
+            dtype, imgs_shape, labels_shape, label_dtype = None, None, None, None
             for i, img in tqdm(enumerate(imgs),
                                total=len(imgs),
                                leave=False):
@@ -648,54 +760,44 @@ class TfrecordConverter():
                     writer.close()
                     writer = None
                     self._writejson(path_record, image_per_shard, label_type,
-                                    dtype, imgs_shape, label_shape)
+                                    dtype, imgs_shape, labels_shape, label_dtype)
                     path_record = prefix+f'_{i//image_per_shard}'+suffix
                     writer = tf.io.TFRecordWriter(path_record)
 
-                img = reader_func(img)                
-                
+                img = reader_func(img)
+
                 if labels is not None:
-                    label = labels[i]
-                    if label_type == 'segmentation':
-                        if isinstance(labels[0], str):
-                            ext = os.path.splitext(label)[1]
-                            assert ext in ['.jpg', '.JPG', '.png', '.PNG', '.bmp'],\
-                                "file extention is imcompatible:"+label
+                    label = reader_label(labels[i])
 
-                            def label_reader(x): return np.array(Image.open(x))
-                        else:
-                            label_reader = np.array
-                        label = label_reader(label)
-                else:
-                    label = None
-
-                feature, dtype, imgs_shape, label_shape = \
+                feature, dtype, imgs_shape, labels_shape, label_dtype = \
                     self._exformat_from_array(img, label_type, label)
                 example = tf.train.Example(
                     features=tf.train.Features(feature=feature))
-                
+
                 if i != 0:
                     # check dtype correspondance
                     assert dtype_old == dtype, \
-                        'all input image type must be the same'                                    
+                        'all input image dtype must be the same'
                     assert imgs_shape_old == imgs_shape, \
                         'all input image shape must be the same'
-                    assert label_shape_old == label_shape, \
-                        'all input image shape must be the same'
-                
+                    assert label_shape_old == labels_shape, \
+                        'all input label shape must be the same'
+                    assert label_dtype_old == label_dtype, \
+                        'all input label dtype must be the same'
+
                 dtype_old = dtype
                 imgs_shape_old = imgs_shape
-                label_shape_old = label_shape
-                    
-                writer.write(example.SerializeToString())
+                label_shape_old = labels_shape
+                label_dtype_old = label_dtype
 
+                writer.write(example.SerializeToString())
 
             if writer:
                 writer.close()
                 writer = None
                 # save datalen to json
                 self._writejson(path_record, last_cnt, label_type, dtype,
-                                imgs_shape, label_shape)
+                                imgs_shape, labels_shape, label_dtype)
 
         finally:
             if writer is not None:
@@ -823,7 +925,7 @@ class AugmentImg():
     in tf.data.Dataset.map()
 
     """
-    
+
     fields = ['standardize',
               'resize',
               'random_rotation',
@@ -844,11 +946,11 @@ class AugmentImg():
               'interpolation',
               'dtype',
               'input_shape',
+              'input_label_shape',
               'num_transforms',
               'training']
     params = namedtuple('params', ','.join(fields))
     params.__new__.__defaults__ = (None,)*len(fields)
-
 
     def __init__(self,
                  standardize: bool = False,
@@ -1036,7 +1138,7 @@ class AugmentImg():
                                   self._random_flip_left_right or
                                   self._random_flip_up_down or
                                   isinstance(self._resize, tf.Tensor))
-       
+
         if self._input_shape and self._num_transforms and self._transform_active:
             print('generating transform matrix...', flush=True)
             rep_cnt = math.ceil(self._num_transforms/self._input_shape[0])
@@ -1070,8 +1172,9 @@ class AugmentImg():
         return self._augmentation(image, label, self._training)
 
     def _get_transform(self, imgshape):
-                
+
         if self._transform_active:
+            self._set_seed()
 
             in_size = imgshape[1:3]
             batch_size = imgshape[0]
@@ -1167,40 +1270,36 @@ class AugmentImg():
 
                     trans_matrix = tf.keras.backend.batch_dot(
                         trans_matrix, rot_matrix)
-                    
-                
+
                 if self._random_flip_left_right or\
-                    self._random_flip_up_down :
+                        self._random_flip_up_down:
                     if self._random_flip_left_right:
-                        flip_x = (tf.cast(tf.random.uniform([batch_size], 0, 2, 
-                                                           dtype=tf.int32,
-                                                   seed=self._seeds[self._seed_idx]),
-                                         float_type) - 0.5) * 2                        
-                        shift_x = size_fl[1] * (flip_x - 1) * -1/2                        
-                        
+                        flip_x = (tf.cast(tf.random.uniform([batch_size], 0, 2,
+                                                            dtype=tf.int32,
+                                                            seed=self._seeds[self._seed_idx]),
+                                          float_type) - 0.5) * 2
+                        shift_x = size_fl[1] * (flip_x - 1) * -1/2
+
                     if self._random_flip_up_down:
-                        flip_y = (tf.cast(tf.random.uniform([batch_size], 0, 2, 
-                                                           dtype=tf.int32,
-                                                   seed=self._seeds[self._seed_idx]),
-                                         float_type) - 0.5) * 2
+                        flip_y = (tf.cast(tf.random.uniform([batch_size], 0, 2,
+                                                            dtype=tf.int32,
+                                                            seed=self._seeds[self._seed_idx]),
+                                          float_type) - 0.5) * 2
                         shift_y = size_fl[0] * (flip_y - 1) * -1/2
-                    
+
                     flip_matrix = tf.map_fn(lambda x: tf.convert_to_tensor(
                         [[x[2], 0, x[3]],
                          [0, x[0], x[1]],
                          [0, 0, 1]], float_type),
                         tf.transpose([flip_y, shift_y, flip_x, shift_x]))
-            
+
                     trans_matrix = tf.keras.backend.batch_dot(
                         trans_matrix, flip_matrix)
-                    
-                    
+
             # get matrix
             M = tfa.image.transform_ops.matrices_to_flat_transforms(
                 tf.linalg.inv(trans_matrix))
 
-            self._seed_idx += 1
-            
             return M
 
     def _augmentation(self, image, label=None, training=False):
@@ -1215,7 +1314,7 @@ class AugmentImg():
         training : bool, optional,
             training or not
         """
-        tf.random.set_seed(self._seeds[self._seed_idx])
+        self._set_seed()
 
         if self._input_shape:
             image = tf.ensure_shape(image, [None, *self._input_shape[1:]])
@@ -1313,14 +1412,17 @@ class AugmentImg():
             # tf.image.per_image_standardization have a bug #33892
             # image = tf.image.per_image_standardization(image)
             image = self._standardization(image, batch_size)
-
-        self._seed_idx += 1
-        self._seed_idx %= self._num_seeds
-
+        
         if label is not None:
             return image, label
         else:
             return image
+
+    def _set_seed(self):
+        self._seed_idx += 1
+        self._seed_idx %= self._num_seeds
+        tf.random.set_seed(self._seeds[self._seed_idx])
+    
 
     def _standardization(self, image, batch_size):
         # num_dims

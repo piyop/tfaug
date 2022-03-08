@@ -19,16 +19,16 @@ import tensorflow as tf
 
 
 import test_tfaug_tool as tool
+import tfaug
 from tfaug import AugmentImg, DatasetCreator, TfrecordConverter
 from test_aug_types import TestAugTypes
 
 
 DATADIR = 'testdata/'
 
-    
+
 class TestTfrecordConverter(unittest.TestCase):
-    
-    
+
     def test_get_patch(self):
         im = np.arange(4*5*3, dtype=np.uint8).reshape(4, 5, 3)
 
@@ -41,62 +41,147 @@ class TestTfrecordConverter(unittest.TestCase):
         tmp = np.zeros((3, 4, 3))
         tmp[0:2, 0:2, :] = im[-2:, -2:, :]
         assert (patches[-1, :, :, :] == tmp).all(), "invalid patch values"
-        
+
     def test_concat_patch(self):
-        
+
         x_size, y_size = 20, 16
-        patch_size = 3,5
-        img = np.arange(y_size*x_size).reshape(y_size,x_size,1)
+        patch_size = 3, 5
+        img = np.arange(y_size*x_size).reshape(y_size, x_size, 1)
         splitted = TfrecordConverter().split_to_patch(img, patch_size, 0)
-        
+
         cy_size = -(-y_size//patch_size[0])
         cx_size = -(-x_size//patch_size[1])
-        
-        ret = TfrecordConverter().concat_patch(splitted, cy_size, cx_size)        
-        
-        assert (img == ret[:img.shape[0],:img.shape[1]]).all(), 'value is changed'
 
+        ret = TfrecordConverter().concat_patch(splitted, cy_size, cx_size)
+
+        assert (img == ret[:img.shape[0], :img.shape[1]]
+                ).all(), 'value is changed'
+        
+    def test_from_path(self):
+
+        BATCH_SIZE = 2
+        flist_imgs = [DATADIR+'Lenna.png'] * 10
+        flist_seglabels = flist_imgs.copy()
+        img_org = np.array(Image.open(flist_imgs[0]))
+        clslabels = list(range(10))
+
+        path_tfrecord = DATADIR+'test_from_path.tfrecord'
+        TfrecordConverter().from_path_label(flist_imgs,
+                                            flist_seglabels,
+                                            path_tfrecord)
+
+        with self.subTest('check segmentation label'):
+            # check segmentation label
+            dc = DatasetCreator(1, BATCH_SIZE, training=True)
+            ds, imgcnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, (img, label) in enumerate(ds):
+                assert (img == img_org).numpy().all(), 'image is changed'
+                assert (label == img_org).numpy().all(), 'labels is changed'
+    
+            
+        with self.subTest('check multiple inputs and labels'):
+            # check segmentation label
+            dc = DatasetCreator(1, BATCH_SIZE, training=True)
+                
+            path_tfrecord = DATADIR+'test_from_path_multi.tfrecord'
+            TfrecordConverter().from_path_label(list(zip(flist_imgs,flist_imgs)),
+                                                list(zip(flist_imgs,flist_imgs)),
+                                                path_tfrecord)
+        
+            ds, imgcnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, features in enumerate(ds):
+                assert (features['image_in0'] == img_org).numpy().all(), 'image is changed'
+                assert (features['image_in1'] == img_org).numpy().all(), 'image1 is changed'
+                assert (features['label_in0'] == img_org).numpy().all(), 'labels is changed'
+                assert (features['label_in1'] == img_org).numpy().all(), 'labels is changed'
+
+
+        with self.subTest('check class label'):
+            # check class label
+            
+            path_tfrecord = DATADIR+'test_from_path.tfrecord'
+            TfrecordConverter().from_path_label(flist_imgs,
+                                                clslabels,
+                                                path_tfrecord)
+        
+            dc = DatasetCreator(False, BATCH_SIZE, training=True)
+            ds, datacnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, (img, label) in enumerate(ds):
+                assert (img == img_org).numpy().all(), 'image is changed'
+                assert all(label.numpy() ==
+                           clslabels[i*BATCH_SIZE:(i+1)*BATCH_SIZE]), '''
+                label is changed'''
 
 
 class TestDatasetCreator(unittest.TestCase):
-    
+
+    def test_get_feature_type(self):
+
+        BATCH_SIZE = 10
+        file = DATADIR+'Lenna.png'
+        flist_imgs = [file] * BATCH_SIZE
+        npimage = np.asarray(Image.open(flist_imgs[0]))
+        npimages = np.tile(npimage, (BATCH_SIZE, 1, 1, 1))
+        integer_labels = list(range(BATCH_SIZE))
+
+        with self.subTest('classification'):
+            assert tfaug.get_feature_type(integer_labels) == ('class', 1)
+            assert tfaug.get_feature_type(
+                np.array(integer_labels)) == ('class', 1)
+
+        with self.subTest('segmentation'):
+            assert tfaug.get_feature_type(flist_imgs) == ('segmentation', 1)
+            assert tfaug.get_feature_type(npimages) == ('segmentation', 1)
+            assert tfaug.get_feature_type(
+                [npimage]*BATCH_SIZE) == ('segmentation', 1)
+
+            with self.subTest('multi-input'):
+                assert tfaug.get_feature_type([[npimage] * 3] * BATCH_SIZE) \
+                    == ('segmentation', 3)
+
+                assert tfaug.get_feature_type([[file] * 4] * BATCH_SIZE) \
+                    == ('segmentation', 4)
+
     def test_set_inputs_shapes(self):
-        
+
         BATCH_SIZE = 2
         flist_imgs = [DATADIR+'Lenna.png'] * 10
         flist_imgs_small = [DATADIR+'Lenna_crop.png'] * 10
-        clslabels = list(range(10))        
-        
+        clslabels = list(range(10))
+
         dc = DatasetCreator(False, BATCH_SIZE, training=True)
-        
+
         ds1 = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs)
         ds2 = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs_small)
         lbl = DatasetCreator(1, BATCH_SIZE).from_path(flist_imgs)
-        lbl_cls = tf.data.Dataset.from_tensor_slices(clslabels).batch(BATCH_SIZE)       
-        
+        lbl_cls = tf.data.Dataset.from_tensor_slices(
+            clslabels).batch(BATCH_SIZE)
+
         # segmentation
         test_ds1 = tf.data.Dataset.zip((ds1, lbl))
-        
-        shapes_in, shapes_lbl = dc._get_inputs_shapes(test_ds1, 'segmentation')
-        
-        assert shapes_in == [(BATCH_SIZE, 512,512,3)], 'invalid shape'
-        assert shapes_lbl == (BATCH_SIZE, 512,512,3), 'invalid label shape'
-        
+
+        shapes_in, shapes_lbl = dc._get_inputs_shapes(test_ds1, 'segmentation', 1)
+
+        assert shapes_in == [(BATCH_SIZE, 512, 512, 3)], 'invalid shape'
+        assert shapes_lbl == [(BATCH_SIZE, 512, 512, 3)], 'invalid label shape'
+
         # classification
         test_ds2 = tf.data.Dataset.zip((ds1, ds2, lbl_cls))
-        shapes_in, shapes_lbl = dc._get_inputs_shapes(test_ds2, 'class')
-                
-        assert shapes_in[0] == (BATCH_SIZE, 512,512,3)
-        assert shapes_in[1] == (BATCH_SIZE, 256,512,3)
-        assert shapes_lbl == (BATCH_SIZE)
-        
-    
+        shapes_in, shapes_lbl = dc._get_inputs_shapes(test_ds2, 'class', 2)
+
+        assert shapes_in[0] == (BATCH_SIZE, 512, 512, 3)
+        assert shapes_in[1] == (BATCH_SIZE, 256, 512, 3)
+        assert shapes_lbl == [(BATCH_SIZE)]
+
     def test_tf_function(self):
 
         BATCH_SIZE = 5
         # data augmentation configurations:
         DATAGEN_CONF = {'standardize': False,
-                        'resize': [100,100],
+                        'resize': [100, 100],
                         # 'random_rotation': 5,
                         'random_flip_left_right': True,
                         'random_flip_up_down': False,
@@ -109,66 +194,88 @@ class TestDatasetCreator(unittest.TestCase):
                         'random_crop': None,  # what to set random_crop
                         'random_noise': 5,
                         # 'random_saturation': [0.5, 1.5],
-                        'input_shape':[BATCH_SIZE, 512, 512, 3],
-                        'num_transforms':10}
+                        'input_shape': [BATCH_SIZE, 512, 512, 3],
+                        'num_transforms': 10}
 
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
         # test for ratio_samples
         labels = [0] * 10 * BATCH_SIZE
-        
+
         dc = DatasetCreator(BATCH_SIZE,
                             BATCH_SIZE,
                             **DATAGEN_CONF,
                             training=True)
-        ds = dc.from_path(flist, labels)            
-                    
+        ds = dc.from_path(flist, labels)
+
         taked = iter(ds.take(10))
-        
+
         @tf.function
         def one_step():
             img, lbl = next(taked)
             # print('imgshape:', img.shape, 'lblshape:', lbl.shape)
             return img, lbl
 
-        img, lbl = one_step()        
+        img, lbl = one_step()
         assert img.shape[0] == BATCH_SIZE, 'invalid batch size'
-        
+
         zipped = zip(img, lbl)
         piyo0, piyo1 = next(zipped)
 
         tool.plot_dsresult(((img, lbl),), BATCH_SIZE, 1,
                            DATADIR+'test_tf_function.png')
-        
+
     def test_from_path(self):
 
         # data augmentation configurations:
-        DATAGEN_CONF = {'standardize': True,
-                        'resize': None,
-                        'random_rotation': 5,
-                        'random_flip_left_right': True,
-                        'random_flip_up_down': False,
-                        'random_shift': [.1, .1],
-                        'random_zoom': [0.2, 0.2],
-                        'random_shear': [5, 5],
-                        'random_brightness': 0.2,
-                        'random_hue': 0.01,
-                        'random_contrast': [0.6, 1.4],
+        DATAGEN_CONF = {'resize': None,
                         'random_crop': None,  # what to set random_crop
-                        'random_noise': 100,
-                        'random_saturation': [0.5, 2],
-                        'num_transforms':10}
+                        'num_transforms': 10}
 
         BATCH_SIZE = 2
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
-        labels = [0] * 10 * BATCH_SIZE
+        flist_crop = [DATADIR+'Lenna_crop.png'] * 10 * BATCH_SIZE
+        img_org = np.array(Image.open(flist[0]))
+        img_crop_org = np.array(Image.open(flist_crop[0]))
+        labels1 = [0] * 10 * BATCH_SIZE
+        labels2 = [5] * 10 * BATCH_SIZE
 
-        ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
-                            **DATAGEN_CONF,
-                            training=True).\
-            from_path(flist, labels)
+        with self.subTest('single input and output'):
 
-        tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
-                           DATADIR+'test_from_path.png')
+            ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF,training=True).\
+                from_path(flist, labels1)
+            
+            img, label = next(iter(ds))
+            
+            assert (img[0] == img_org).numpy().all(), "Image was changed"
+            assert (label == 0).numpy().all(), "Labels were changed"
+
+        with self.subTest('multipe segmentation inputs and multiple class outputs'):
+            
+            ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF,training=True).\
+                from_path(list(zip(flist, flist_crop)), list(zip(labels1,labels2)))                
+            
+            ret = next(iter(ds))
+            
+            assert (ret['image_in0'] == img_org).numpy().all(), "Image was changed"
+            assert (ret['image_in1'] == img_crop_org).numpy().all(), "Image was changed"
+            assert (ret['label_in0'] == 0).numpy().all(), "Labels were changed"
+            assert (ret['label_in1'] == 5).numpy().all(), "Labels were changed"
+            
+
+        with self.subTest('multipe segmentation inputs and multiple seg outputs'):
+            
+            ds = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF,training=True).\
+                from_path(list(zip(flist, flist_crop)), list(zip(flist_crop,flist)))                
+            
+            ret = next(iter(ds))
+            
+            assert (ret['image_in0'] == img_org).numpy().all(), "Image was changed"
+            assert (ret['image_in1'] == img_crop_org).numpy().all(), "Image was changed"
+            assert (ret['label_in0'] == img_crop_org).numpy().all(), "Labels were changed"
+            assert (ret['label_in1'] == img_org).numpy().all(), "Labels were changed"
 
     def test_from_tfrecord(self):
 
@@ -188,53 +295,54 @@ class TestDatasetCreator(unittest.TestCase):
                         'random_crop': random_crop_size,
                         'random_noise': 100,
                         'random_saturation': [0.5, 2],
-                        'num_transforms':10}
+                        'num_transforms': 10}
 
         BATCH_SIZE = 2
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
         labels = [0] * 10 * BATCH_SIZE
 
         # test for classification
-        path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
-        TfrecordConverter().from_path_label(flist,
-                                                     labels,
-                                                     path_tfrecord_0)
-
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, label_type='class',
-                            **DATAGEN_CONF, training=True)
-        ds, cnt = dc.from_tfrecords([path_tfrecord_0])
-
-        rep_cnt = 0
-        for img, label in iter(ds):
-            rep_cnt += 1
-
-        assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-
-        tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
-                           DATADIR+'test_ds_from_tfrecord.png')
+        with self.subTest('for classification'):
+            path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
+            TfrecordConverter().from_path_label(flist,
+                                                labels,
+                                                path_tfrecord_0)
+    
+            dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF, training=True)
+            ds, cnt = dc.from_tfrecords([path_tfrecord_0])
+    
+            rep_cnt = 0
+            for img, label in iter(ds):
+                rep_cnt += 1
+    
+            assert rep_cnt == 10, "repetition count is invalid"
+            assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+    
+            tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
+                               DATADIR+'test_ds_from_tfrecord.png')
 
         # test for segmentation
-        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().from_path_label(flist,
-                                                     flist,
-                                                     path_tfrecord)
-
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
-                            label_type='segmentation',
-                            **DATAGEN_CONF,  training=True)
-        ds, cnt = dc.from_tfrecords([path_tfrecord])
-
-        rep_cnt = 0
-        for img, label in iter(ds):
-            rep_cnt += 1
-
-        assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert label.shape[1:3] == random_crop_size, "crop size is invalid"
-
-        tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
-                           DATADIR+'test_ds_from_tfrecord.png')
+        with self.subTest('for segmentation'):
+            path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+            TfrecordConverter().from_path_label(flist,
+                                                flist,
+                                                path_tfrecord)
+    
+            dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF,  training=True)
+            ds, cnt = dc.from_tfrecords([path_tfrecord])
+    
+            rep_cnt = 0
+            for img, label in iter(ds):
+                rep_cnt += 1
+    
+            assert rep_cnt == 10, "repetition count is invalid"
+            assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+            assert label.shape[1:3] == random_crop_size, "crop size is invalid"
+    
+            tool.plot_dsresult(ds.take(10), BATCH_SIZE, 10,
+                               DATADIR+'test_ds_from_tfrecord.png')
 
     def test_from_tfrecord_sample_ratio(self):
 
@@ -254,7 +362,7 @@ class TestDatasetCreator(unittest.TestCase):
                         'random_crop': random_crop_size,
                         'random_noise': 100,
                         'random_saturation': [0.5, 2],
-                        'num_transforms':10}
+                        'num_transforms': 10}
 
         BATCH_SIZE = 5
         flist = [DATADIR+'Lenna.png'] * 10 * BATCH_SIZE
@@ -262,31 +370,29 @@ class TestDatasetCreator(unittest.TestCase):
         labels = [0] * 10 * BATCH_SIZE
         path_tfrecord_0 = DATADIR+'ds_from_tfrecord_0.tfrecord'
         TfrecordConverter().from_path_label(flist,
-                                                     labels,
-                                                     path_tfrecord_0)
+                                            labels,
+                                            path_tfrecord_0)
         labels = [1] * 10 * BATCH_SIZE
         path_tfrecord_1 = DATADIR+'ds_from_tfrecord_1.tfrecord'
         TfrecordConverter().from_path_label(flist,
-                                                     labels,
-                                                     path_tfrecord_1)
+                                            labels,
+                                            path_tfrecord_1)
 
         dc = DatasetCreator(5, 10,
-                            label_type='class',
                             repeat=False,
                             **DATAGEN_CONF,  training=True)
         ds, cnt = dc.from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
-                                            ratio_samples=np.array([0.1, 1000], dtype=np.float32))
+                                    ratio_samples=np.array([0.1, 1000], dtype=np.float32))
 
         img, label = next(iter(ds.take(1)))
         assert img.shape[1:3] == random_crop_size, "crop size is invalid"
         assert all(label == 1), "sampled label is invalid this sometimes happen"
 
         ds, cnt = DatasetCreator(5, 50,
-                                 label_type='class',
                                  repeat=False,
                                  **DATAGEN_CONF,
                                  training=True).from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
-                                                                       ratio_samples=np.array([1, 1], dtype=np.float32))
+                                                               ratio_samples=np.array([1, 1], dtype=np.float32))
         rep_cnt = 0
         for img, label in iter(ds):
             rep_cnt += 1
@@ -295,11 +401,10 @@ class TestDatasetCreator(unittest.TestCase):
 
         # check for sampling ratio
         dc = DatasetCreator(5, 10,
-                            label_type='class',
                             repeat=True,
                             **DATAGEN_CONF,  training=True)
         ds, cnt = dc.from_tfrecords([[path_tfrecord_0], [path_tfrecord_1]],
-                                            ratio_samples=np.array([1, 10], dtype=np.float32))
+                                    ratio_samples=np.array([1, 10], dtype=np.float32))
         ds = ds.take(200)
         cnt_1, cnt_0 = 0, 0
         for img, label in ds:
@@ -308,162 +413,196 @@ class TestDatasetCreator(unittest.TestCase):
 
         assert 1/10 - 1/100 < cnt_0 / cnt_1 < 1/10 + 1/100,\
             "sampling ratio is invalid. this happen randomely. please retry:"\
-                + str(cnt_0/cnt_1)
+            + str(cnt_0/cnt_1)
 
-    def test_from_path(self):
+                
 
-        BATCH_SIZE = 2
-        flist_imgs = [DATADIR+'Lenna.png'] * 10
-        flist_seglabels = flist_imgs.copy()
-        img_org = np.array(Image.open(flist_imgs[0]))
-        clslabels = list(range(10))
-
-        path_tfrecord = DATADIR+'test_from_path.tfrecord'
-        TfrecordConverter().from_path_label(flist_imgs,
-                                                     flist_seglabels,
-                                                     path_tfrecord)
-
-        # check segmentation label
-        dc = DatasetCreator(1, BATCH_SIZE, training=True)
-        ds, imgcnt = dc.from_tfrecords([path_tfrecord])
-
-        for i, (img, label) in enumerate(ds):
-            assert (img == img_org).numpy().all(), 'image is changed'
-            assert (label == img_org).numpy().all(), 'labels is changed'
-
-        TfrecordConverter().from_path_label(flist_imgs,
-                                                     clslabels,
-                                                     path_tfrecord)
-
-        # check class label
-        dc = DatasetCreator(False, BATCH_SIZE, training=True)
-        ds, datacnt = dc.from_tfrecords([path_tfrecord])
-
-        for i, (img, label) in enumerate(ds):
-            assert (img == img_org).numpy().all(), 'image is changed'
-            assert all(label.numpy() == 
-                       clslabels[i*BATCH_SIZE:(i+1)*BATCH_SIZE]), '''label is
-                                                a                    changed'''            
-        
-        
-        
-    def test_from_3inputs(self):
+    def test_multi_inputs_labels(self):
 
         BATCH_SIZE = 2
+        NUM_DATA = 10
         img_org = np.array(Image.open(DATADIR+'Lenna.png'))
-        clslabels = list(range(10))
-        
+        clslabels = list(range(NUM_DATA))
+
         # test uint8 and float32 tiff
         # save as float32 tiff
-        fp32 = np.array(Image.open(DATADIR+'Lenna.png')).astype(np.float32) // 256
-        Image.fromarray(fp32[:,:,0]).save(DATADIR+'Lenna.tif')
+        fp32 = np.array(Image.open(DATADIR+'Lenna.png')
+                        ).astype(np.float32) // 256
+        Image.fromarray(fp32[:, :, 0]).save(DATADIR+'Lenna.tif')
+
+        flist_imgs = [(DATADIR+'Lenna.png', DATADIR+'Lenna.tif', DATADIR+'Lenna.png')
+                      for i in range(NUM_DATA)]
         
-        flist_imgs = [(DATADIR+'Lenna.png',DATADIR+'Lenna.tif',DATADIR+'Lenna.png')
-                      for i in range(10)]
-        # test 3 images in tfrecord and classification
-        path_tfrecord = DATADIR+'test_3_inimgs.tfrecord'
-        TfrecordConverter().from_path_label(flist_imgs,
-                                            clslabels,
-                                            path_tfrecord,
-                                            n_imgin=3)
-        
-        dc = DatasetCreator(False, BATCH_SIZE, num_transforms=20, training=True)
-        ds, datacnt = dc.from_tfrecords([path_tfrecord])
-        
-        for i, inputs in enumerate(ds):
-            assert (inputs[0]['image_in0'] == img_org).numpy().all(), 'in_image0 is changed'
-            assert (inputs[0]['image_in1'] == fp32).numpy().all(), 'in_image1 is changed'
-            assert (inputs[0]['image_in2'] == img_org).numpy().all(), 'in_image2 is changed'
-            assert all(inputs[1].numpy() == \
-                       clslabels[i*BATCH_SIZE:(i+1)*BATCH_SIZE]), 'label is changed'
+        with self.subTest('3 inputs 3 labels classification'):
+            # test 3 images in tfrecord and segmentation
+            path_tfrecord = DATADIR+'test_3_inimgs_seg.tfrecord'
+            TfrecordConverter().from_path_label(flist_imgs,
+                                                [list(range(3))] * NUM_DATA,
+                                                path_tfrecord)
+    
+            dc = DatasetCreator(False, BATCH_SIZE,
+                                num_transforms=20, training=True)
+            ds, datacnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, inputs in enumerate(ds):
+                assert (inputs['image_in0'] == img_org).numpy(
+                ).all(), 'in_image0 is changed'
+                assert (inputs['image_in1'] == fp32).numpy(
+                ).all(), 'in_image1 is changed'
+                assert (inputs['image_in2'] == img_org).numpy(
+                ).all(), 'in_image2 is changed'
+                assert (inputs['label_in0'] == [0,0]
+                        ).numpy().all(), 'label_in0 is changed'
+                assert (inputs['label_in1'] == [1,1]
+                        ).numpy().all(), 'label_in0 is changed'
+                assert (inputs['label_in2'] == [2,2]
+                        ).numpy().all(), 'label_in0 is changed'
+
+        with self.subTest('3 inputs classification'):
+            # test 3 images in tfrecord and classification
+            path_tfrecord = DATADIR+'test_3_inimgs.tfrecord'
+            TfrecordConverter().from_path_label(flist_imgs,
+                                                clslabels,
+                                                path_tfrecord)
+
+            dc = DatasetCreator(False, BATCH_SIZE,
+                                num_transforms=20, training=True)
+            ds, datacnt = dc.from_tfrecords([path_tfrecord])
+
+            for i, inputs in enumerate(ds):
+                assert (inputs['image_in0'] == img_org).numpy(
+                ).all(), 'in_image0 is changed'
+                assert (inputs['image_in1'] == fp32).numpy(
+                ).all(), 'in_image1 is changed'
+                assert (inputs['image_in2'] == img_org).numpy(
+                ).all(), 'in_image2 is changed'
+                assert all(inputs['label_in0'].numpy() ==
+                           clslabels[i*BATCH_SIZE:(i+1)*BATCH_SIZE]), 'label is changed'
+
+        with self.subTest('3 inputs segmentation and augmentation'):
+            # test 3 images in tfrecord and segmentation
+            path_tfrecord = DATADIR+'test_3_inimgs_seg.tfrecord'
+            TfrecordConverter().from_path_label(flist_imgs,
+                                                [DATADIR+'Lenna.png'] * 10,
+                                                path_tfrecord)
+    
+            dc = DatasetCreator(False, BATCH_SIZE,
+                                random_rotation=20,
+                                # random_contrast=[1.4, 2],
+                                num_transforms=20, training=True)
+            ds, datacnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, inputs in enumerate(ds):
+                # assert (inputs[0]['image_in0'] == img_org).numpy(
+                # ).all(), 'in_image0 is changed'
+                assert (inputs['image_in1'] == fp32).numpy(
+                ).all(), 'in_image1 is changed'
+                assert (inputs['image_in2'] == inputs['image_in0']).numpy(
+                ).all(), 'in_image0 and in_image2 do not have same transformation'
+                assert (inputs['label_in0'] == inputs['image_in0']).numpy(
+                    ).all(), 'label_in0 and in_image0 is no changed'
                 
-        # test 3 images in tfrecord and segmentation
-        path_tfrecord = DATADIR+'test_3_inimgs_seg.tfrecord'
-        TfrecordConverter().from_path_label(flist_imgs,
-                                                     [DATADIR+'Lenna.png'] * 10,
-                                                     path_tfrecord,
-                                                     n_imgin=3)
-        
-        dc = DatasetCreator(False, BATCH_SIZE, num_transforms=20, training=True)
-        ds, datacnt = dc.from_tfrecords([path_tfrecord])
-        
-        for i, inputs in enumerate(ds):
-            assert (inputs[0]['image_in0'] == img_org).numpy().all(), 'in_image0 is changed'
-            assert (inputs[0]['image_in1'] == fp32).numpy().all(), 'in_image1 is changed'
-            assert (inputs[0]['image_in2'] == img_org).numpy().all(), 'in_image2 is changed'
-            assert (inputs[1] == img_org).numpy().all(), 'label is changed'
-            
-        
+                
+        with self.subTest('3 inputs 3 labels segmentation'):
+            # test 3 images in tfrecord and segmentation
+            path_tfrecord = DATADIR+'test_3_inimgs_seg.tfrecord'
+            TfrecordConverter().from_path_label(flist_imgs,
+                                                flist_imgs,
+                                                path_tfrecord)
+    
+            dc = DatasetCreator(False, BATCH_SIZE,
+                                num_transforms=20, training=True)
+            ds, datacnt = dc.from_tfrecords([path_tfrecord])
+    
+            for i, inputs in enumerate(ds):
+                assert (inputs['image_in0'] == img_org).numpy(
+                ).all(), 'in_image0 is changed'
+                assert (inputs['image_in1'] == fp32).numpy(
+                ).all(), 'in_image1 is changed'
+                assert (inputs['image_in2'] == img_org).numpy(
+                ).all(), 'in_image2 is changed'
+                assert (inputs['label_in0'] == img_org).numpy().all(), \
+                    'label_in0 is changed'                    
+                assert (inputs['label_in1'] == fp32).numpy().all(), \
+                    'label_in1 is changed'                    
+                assert (inputs['label_in2'] == img_org).numpy().all(), \
+                    'label_in2 is changed'
+                    
+                    
     def test_private_functions_in_DatasetCreator(self):
-        
+
         BATCH_SIZE = 2
         img_org = Image.open(DATADIR+'Lenna.png')
         shape = list(np.array(img_org).shape)
-        fp32 = np.array(Image.open(DATADIR+'Lenna.png')).astype(np.float32) // 256
-        Image.fromarray(fp32[:,:,0]).save(DATADIR+'Lenna.tif')     
-        
-        clslabels = list(range(10))        
-        flist_imgs = [(DATADIR+'Lenna.png',DATADIR+'Lenna.tif',DATADIR+'Lenna.png') 
+        fp32 = np.array(Image.open(DATADIR+'Lenna.png')
+                        ).astype(np.float32) // 256
+        Image.fromarray(fp32[:, :, 0]).save(DATADIR+'Lenna.tif')
+
+        clslabels = list(range(10))
+        flist_imgs = [(DATADIR+'Lenna.png', DATADIR+'Lenna.tif', DATADIR+'Lenna.png')
                       for i in range(10)]
-        
+
         path_tfrecord = DATADIR+'test_3_inimgs.tfrecord'
         TfrecordConverter().from_path_label(flist_imgs,
-                                                     clslabels,
-                                                     path_tfrecord,
-                                                     n_imgin=3)
-        
-        dc = DatasetCreator(1, BATCH_SIZE, training=True)        
+                                            clslabels,
+                                            path_tfrecord)
+
+        dc = DatasetCreator(1, BATCH_SIZE, training=True)
         path_tfrecords = [path_tfrecord, path_tfrecord]
-        (ds, num_img, label_type, imgs_dtype, 
-         imgs_shape, label_shape) = dc._get_ds_tfrecord(1, path_tfrecords)
-        
-        # test _set_formats        
-        example_formats = dc._gen_example(label_type, imgs_dtype, imgs_shape)
-        decoders = dc._decoder_creator(label_type, imgs_dtype, imgs_shape)
-        
-        
+        (ds, num_img, label_type, imgs_dtype,
+         imgs_shape, labels_shape, 
+         labels_dtype) = dc._get_ds_tfrecord(1, path_tfrecords)
+
+        # test _set_formats
+        example_formats = dc._gen_example(label_type, labels_dtype, 
+                                          imgs_dtype, imgs_shape)
+        decoders = dc._decoder_creator(label_type, labels_dtype, labels_shape,
+                                       imgs_dtype, imgs_shape)
+
         assert example_formats['image_in0'].dtype == tf.string
         assert example_formats['image_in1'].dtype == tf.string
         assert example_formats['image_in2'].dtype == tf.string
-        assert example_formats['label'].dtype == tf.int64
-        
+        assert example_formats['label_in0'].dtype == tf.int64
+
         ds_decoded = (ds.batch(BATCH_SIZE)
-                  .apply(tf.data.experimental.parse_example_dataset(example_formats))
-                  .map(decoders))
-                
+                      .apply(tf.data.experimental.parse_example_dataset(example_formats))
+                      .map(decoders))
+
         # define augmentation
-        datagen_confs = {'random_rotation':5, 
-                         'num_transforms':5}
-        
-        inputs_shape, input_label_shape = dc._get_inputs_shapes(ds_decoded, label_type)
-        
-        seeds = np.random.uniform(0, 2**32, (int(1e6)))  
-        if len(imgs_dtype) > 1:# multiple input    
+        datagen_confs = {'random_rotation': 5,
+                         'num_transforms': 5}
+
+        inputs_shape, input_label_shape = dc._get_inputs_shapes(
+            ds_decoded, label_type, len(imgs_dtype))
+
+        seeds = np.random.uniform(0, 2**32, (int(1e6)))
+        if len(imgs_dtype) > 1:  # multiple input
             aug_funs = []
             for shape in inputs_shape:
                 datagen_confs['input_shape'] = shape
                 aug_funs.append(AugmentImg(**datagen_confs,
-                                     seeds = seeds))
+                                           seeds=seeds))
             if label_type == 'segmentation':
                 datagen_confs['input_shape'] = input_label_shape
                 aug_funs.append(AugmentImg(**datagen_confs,
-                                     seeds = seeds))
+                                           seeds=seeds))
             elif label_type == 'class':
                 aug_funs.append(lambda x: x)
-            
+
             aug_fun = dc._apply_aug(aug_funs)
 
         ds_aug = ds_decoded.map(aug_fun)
-                    
+
         ds_out = ds_aug.map(dc._ds_to_dict(example_formats.keys()))
         test_ret = next(iter(ds_out))
-        
-        assert test_ret[0]['image_in0'].shape == [BATCH_SIZE, *imgs_shape[0]], "invalid image 0 size"
-        assert test_ret[0]['image_in1'].shape == [BATCH_SIZE, *imgs_shape[1]], "invalid image 1 size"
-        assert test_ret[0]['image_in2'].shape == [BATCH_SIZE, *imgs_shape[2]], "invalid image 2 size"
-        assert test_ret[1].shape == BATCH_SIZE, "invalid label size"            
-        
-        
+
+        assert test_ret['image_in0'].shape == [
+            BATCH_SIZE, *imgs_shape[0]], "invalid image 0 size"
+        assert test_ret['image_in1'].shape == [
+            BATCH_SIZE, *imgs_shape[1]], "invalid image 1 size"
+        assert test_ret['image_in2'].shape == [
+            BATCH_SIZE, *imgs_shape[2]], "invalid image 2 size"
+        assert test_ret['label_in0'].shape == BATCH_SIZE, "invalid label size"
 
     def test_sharded_from_path(self):
 
@@ -474,15 +613,15 @@ class TestDatasetCreator(unittest.TestCase):
 
         path_tfrecord = DATADIR+'test_shards_from_path.tfrecord'
         TfrecordConverter().from_path_label(flist_imgs,
-                                                     flist_seglabels,
-                                                     path_tfrecord,
-                                                     image_per_shard=3)
+                                            flist_seglabels,
+                                            path_tfrecord,
+                                            image_per_shard=3)
 
         path_tfrecords = glob(DATADIR+'test_shards_from_path_?.tfrecord')
         assert len(path_tfrecords) == 4, 'num of shards is invalid'
 
         # check segmentation label
-        dc = DatasetCreator(1, 1, label_type='segmentation', training=True)
+        dc = DatasetCreator(1, 1, training=True)
         ds, imgcnt = dc.from_tfrecords(path_tfrecords)
 
         for i, (img, label) in enumerate(ds):
@@ -491,15 +630,15 @@ class TestDatasetCreator(unittest.TestCase):
 
         path_tfrecord = DATADIR+'test_shards_from_path_seg.tfrecord'
         TfrecordConverter().from_path_label(flist_imgs,
-                                                     clslabels,
-                                                     path_tfrecord,
-                                                     image_per_shard=2)
+                                            clslabels,
+                                            path_tfrecord,
+                                            image_per_shard=2)
 
         path_tfrecords = glob(DATADIR+'test_shards_from_path_seg_?.tfrecord')
         assert len(path_tfrecords) == 5, 'num of shards is invalid'
 
         # check class label
-        dc = DatasetCreator(False, 1, label_type='class', training=True)
+        dc = DatasetCreator(False, 1, training=True)
         ds, datacnt = dc.from_tfrecords(path_tfrecords)
 
         list_label = []
@@ -509,9 +648,8 @@ class TestDatasetCreator(unittest.TestCase):
 
         label_all = np.concatenate(sorted(list_label))
         assert all(label_all == clslabels), 'label was changed'
-        
-        
-        #check from_ary_label()        
+
+        #check from_ary_label()
 
     def test_from_ary_label(self):
 
@@ -529,7 +667,7 @@ class TestDatasetCreator(unittest.TestCase):
                         'random_contrast': [0.6, 1.4],
                         'random_crop': random_crop_size,
                         'random_noise': 100,
-                        'num_transforms':10}
+                        'num_transforms': 10}
 
         BATCH_SIZE = 2
         with Image.open(DATADIR+'Lenna.png').convert('RGB') as img:
@@ -539,105 +677,105 @@ class TestDatasetCreator(unittest.TestCase):
         image = np.concatenate([image, np.zeros(image.shape[:3], dtype=np.uint8)[
                                :, :, :, np.newaxis]], axis=3)
 
-        labels = [0] * 10 * BATCH_SIZE
+        labels = list(range(10)) * BATCH_SIZE
 
-        # test for classification
-        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().from_ary_label(image,
-                                                    labels,
-                                                    path_tfrecord)
+        with self.subTest('classification'):
+            # test for classification
+            path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+            TfrecordConverter().from_ary_label(image,
+                                               labels,
+                                               path_tfrecord)
 
-        # for preproc, set input dimension
-        DATAGEN_CONF['input_shape'] = [BATCH_SIZE,*image.shape[1:3], 3]
-        
-        def preproc(img, lbl): return (img[:, :, :, :3], lbl)
+            # for preproc, set input dimension
+            DATAGEN_CONF['input_shape'] = [BATCH_SIZE, *image.shape[1:3], 3]
 
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
-                            label_type='class', preproc=preproc,
-                            **DATAGEN_CONF, training=True)
-        ds, cnt = dc.from_tfrecords([path_tfrecord])
+            def preproc(img, lbl): return (img[:, :, :, :3], lbl)
 
-        rep_cnt = 0
-        test = next(iter(ds))
-        for img, label in iter(ds):
-            rep_cnt += 1
+            dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                preproc=preproc,
+                                **DATAGEN_CONF, training=True)
+            ds, cnt = dc.from_tfrecords([path_tfrecord])
 
-        assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert img.shape[3] == 3, "data shape is invalid"
+            rep_cnt = 0
+            test = next(iter(ds))
+            for img, label in iter(ds):
+                rep_cnt += 1
 
-        #test for segmentation
-        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        TfrecordConverter().from_ary_label(image,
-                                                    image,
-                                                    path_tfrecord)
+            assert rep_cnt == 10, "repetition count is invalid"
+            assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+            assert img.shape[3] == 3, "data shape is invalid"
 
-        def preproc(img, lbl): return (img, lbl[:, :, :, :3])
+        with self.subTest('segmentation'):
+            #test for segmentation
+            path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+            TfrecordConverter().from_ary_label(image,
+                                               image,
+                                               path_tfrecord)
 
-        DATAGEN_CONF['input_shape'] = [BATCH_SIZE,*image.shape[1:]]
-        DATAGEN_CONF['input_label_shape'] = [BATCH_SIZE,*image.shape[1:3], 3]
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
-                            label_type='segmentation', preproc=preproc,
-                            **DATAGEN_CONF, training=True)
-        ds, cnt = dc.from_tfrecords([path_tfrecord])
+            def preproc(img, lbl): return (img, lbl[:, :, :, :3])
 
-        rep_cnt = 0
-        for img, label in iter(ds):
-            rep_cnt += 1
+            DATAGEN_CONF['input_shape'] = [BATCH_SIZE, *image.shape[1:]]
+            DATAGEN_CONF['input_label_shape'] = [
+                BATCH_SIZE, *image.shape[1:3], 3]
+            dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE, preproc=preproc,
+                                **DATAGEN_CONF, training=True)
+            ds, cnt = dc.from_tfrecords([path_tfrecord])
 
-        assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape[1:3] == random_crop_size, "crop size is invalid"
-        assert img.shape[3] == 4, "data shape is invalid"
-        assert label.shape[3] == 3, "data shape is invalid"
+            rep_cnt = 0
+            for img, label in iter(ds):
+                rep_cnt += 1
 
-        # test for no labels
-        path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
-        DATAGEN_CONF['input_shape'] = [BATCH_SIZE,*image.shape[1:]]
-        TfrecordConverter().from_ary_label(image,
-                                                    None,
-                                                    path_tfrecord)
+            assert rep_cnt == 10, "repetition count is invalid"
+            assert img.shape[1:3] == random_crop_size, "crop size is invalid"
+            assert img.shape[3] == 4, "data shape is invalid"
+            assert label.shape[3] == 3, "data shape is invalid"
 
-        dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
-                            label_type=None,
-                            **DATAGEN_CONF, training=True)
-        ds, cnt = dc.from_tfrecords([path_tfrecord])
+        with self.subTest('no label'):
+            # test for no labels
+            path_tfrecord = DATADIR+'ds_from_tfrecord.tfrecord'
+            DATAGEN_CONF['input_shape'] = [BATCH_SIZE, *image.shape[1:]]
+            TfrecordConverter().from_ary_label(image,
+                                               None,
+                                               path_tfrecord)
 
-        rep_cnt = 0
-        for img in iter(ds):
-            rep_cnt += 1
-            
-        assert rep_cnt == 10, "repetition count is invalid"
-        assert img.shape == [BATCH_SIZE, *random_crop_size, 4], "crop size is invalid"
+            dc = DatasetCreator(BATCH_SIZE*10, BATCH_SIZE,
+                                **DATAGEN_CONF, training=True)
+            ds, cnt = dc.from_tfrecords([path_tfrecord])
+
+            rep_cnt = 0
+            for img in iter(ds):
+                rep_cnt += 1
+
+            assert rep_cnt == 10, "repetition count is invalid"
+            assert img.shape == [BATCH_SIZE, *
+                                 random_crop_size, 4], "crop size is invalid"
 
 
-
-    
 class TestAugmentImg(unittest.TestCase):
-    
+
     def test_standardization(self):
 
         im = np.arange(3*4*5*3, dtype=np.uint8).reshape(3, 4, 5, 3)
         tn = tf.Variable(im)
-        
+
         ret = AugmentImg()._standardization(tn, 3).numpy()
 
         mean_axis = np.mean(ret, axis=(1, 2, 3))
-        std_axis = np.std(ret, axis=(1,2,3))
+        std_axis = np.std(ret, axis=(1, 2, 3))
 
         assert np.allclose(mean_axis, 0), 'standardization failed'
         assert np.allclose(std_axis, 1), 'standardization failed'
-        
-        
+
     def test_set_seed(self):
-        
+
         BATCH_SIZE = 2
         img = np.array(Image.open(DATADIR+'Lenna.png'))
-        img1 = np.tile(img, (BATCH_SIZE,1,1,1))
+        img1 = np.tile(img, (BATCH_SIZE, 1, 1, 1))
         img2 = img1.copy()
-                
+
         # data augmentation configurations:
         DATAGEN_CONF = {'standardize': False,
-                        'resize': [100,100],
+                        'resize': [100, 100],
                         'random_rotation': 5,
                         'random_flip_left_right': True,
                         'random_flip_up_down': False,
@@ -647,43 +785,59 @@ class TestAugmentImg(unittest.TestCase):
                         'random_brightness': 0.2,
                         'random_hue': 0.00001,
                         'random_contrast': [0.6, 1.4],
-                        'random_crop': None,  
+                        'random_crop': None,
                         'random_noise': 5,
                         'random_saturation': [0.5, 1.5],
-                        'input_shape':[BATCH_SIZE, 512, 512, 3],
-                        'num_transforms':10}
-        
-        
+                        'input_shape': [BATCH_SIZE, 512, 512, 3],
+                        'num_transforms': 10}
+
         seeds = np.random.uniform(0, 100, (int(1e6)))
-        aug1 = AugmentImg(**DATAGEN_CONF, seeds = seeds, training=True)        
-        
-        aug2 = AugmentImg(**DATAGEN_CONF, seeds = seeds, training=True)
-        
+        aug1 = AugmentImg(**DATAGEN_CONF, seeds=seeds, training=True)
+
+        aug2 = AugmentImg(**DATAGEN_CONF, seeds=seeds, training=True)
+
         ret1 = aug1(img1)
         ret2 = aug2(img2)
-        
-        assert (ret1 == ret2).numpy().all(), "aug is not same"        
-    
+
+        assert (ret1 == ret2).numpy().all(), "aug is not same"
 
     def test_add_blur(self):
 
-        imgs = np.random.rand(2*5*4*3).reshape(2, 5, 4, 3) * 255
+        # test lenna
+        batch_size = 2
+        img = np.array(Image.open(DATADIR+'Lenna.png').resize((50, 50)))
+        imgs = np.tile(img, (batch_size, 1, 1, 1))
+
+        imgs = np.array([[(i+j) % 2 for i in range(20)]
+                        for j in range(20)])*255
+        imgs = np.repeat(imgs[np.newaxis, :, :, np.newaxis], batch_size, 0)
+        imgs = np.repeat(imgs, 3, 3)
         sigmas = (1.0, 0.5)
-        kernel_size = 3
 
-        plt.imshow(imgs[1].astype(np.int8))
+        sigmas = tf.random.uniform([batch_size], 0, 0.5, seed=0)
 
-        padimg = np.pad(imgs, [[0, 0], [1, 1], [1, 1],
+        kernel_size = 5
+
+        plt.imshow(imgs[1].astype(np.uint8))
+
+        padimg = np.pad(imgs, [[0, 0], [kernel_size//2, kernel_size//2],
+                               [kernel_size//2, kernel_size//2],
                         [0, 0]], mode='symmetric')
-        ret = AugmentImg()._add_blur(imgs, sigmas, 3, 3)
-        plt.imshow(ret.numpy()[1].astype(np.int8))
+
+        plt.imshow(padimg[0])
+
+        ret = AugmentImg()._add_blur(imgs, sigmas, kernel_size, 3)
+        plt.imshow(ret.numpy()[0].astype(np.uint8))
+        plt.imshow(ret.numpy()[1].astype(np.uint8))
 
         kernels = AugmentImg()._get_gaussian_kernels(sigmas, kernel_size)
         kernels = tf.repeat(tf.expand_dims(kernels, 3), 3, 3)
 
-        testval = tf.reduce_sum(padimg[:, 0:3, 0:3, :] * kernels, axis=(1, 2))
+        testval = tf.reduce_sum(padimg[:, 0:kernel_size, 0:kernel_size, :] * kernels,
+                                axis=(1, 2))
         assert np.allclose(ret[:, 0, 0, :], testval), 'invalid blur'
-        testval = tf.reduce_sum(padimg[:, 4:7, 3:6, :] * kernels, axis=(1, 2))
+        testval = tf.reduce_sum(
+            padimg[:, 4:4+kernel_size, 3:3+kernel_size, :] * kernels, axis=(1, 2))
         assert np.allclose(ret[:, 4, 3, :], testval), 'invalid blur'
 
     def test_get_gaussian_kernels(self):
@@ -728,7 +882,6 @@ class TestAugmentImg(unittest.TestCase):
 
         assert np.allclose((imgs[:, 2:5, 0:3, :] * kernels).sum(axis=(1, 2)),
                            ret[:, 3, 1, :].numpy()), 'calc error2'
-
 
     def test_tfdata_vertual(self):
 
@@ -1000,12 +1153,16 @@ class TestAugmentImg(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    unittest.main()    
+
+    unittest.main()
     suite = unittest.TestLoader().loadTestsFromTestCase(TestAugTypes)
     unittest.TextTestRunner(verbosity=2).run(suite)
-    
-    # TestDatasetCreatoar().test_from_3inputs()
+
+    # TestDatasetCreator().test_private_functions_in_DatasetCreator()
+
+    # TestDatasetCreator().test_multi_inputs_labels()
     # TestDatasetCreator().test_from_tfrecord()
-    # TestDatasetCreator().test_from_ary_label()
     # TestDatasetCreator().test_from_path()
-    # TestAugmentImg().test_augmentation()
+    
+    # TestTfrecordConverter().test_from_path()
+    # TestAugmentImg().test_set_seed()

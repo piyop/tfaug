@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="tfaug",
-    version="0.1.1.0",
+    version="0.1.2.0",
     author="piyop",
     author_email="t.okuda@keio.com",
     description="tensorflow easy image augmantation",

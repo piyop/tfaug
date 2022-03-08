@@ -97,14 +97,14 @@ os.makedirs(DATADIR+'mnist', exist_ok=True)
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 ```
 
-### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
+### Convert Images and Labels to the Tfrecord Format by TfrecordConverter()
 Convert training and validation(test) images and labels into Tfrecord format by TfrecordConverter.
 Therefore, Tensorflow could be load data from Tfrecord format with least overhead and parallel reading. 
 ```Python
 # save as tfrecord
-TfrecordConverter().tfrecord_from_ary_label(
+TfrecordConverter().from_ary_label(
     x_train, y_train, DATADIR+'mnist/train.tfrecord')
-TfrecordConverter().tfrecord_from_ary_label(
+TfrecordConverter().from_ary_label(
     x_test, y_test, DATADIR+'mnist/test.tfrecord')
  ```
 
@@ -120,12 +120,12 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       random_zoom=[0.1, 0.1],
                                       random_rotation=20,
                                       training=True)
-                       .dataset_from_tfrecords([DATADIR+'mnist/train.tfrecord']))
+                       .from_tfrecords([DATADIR+'mnist/train.tfrecord']))
 ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=shuffle_buffer,
                                       batch_size=batch_size,
                                       repeat=True,
                                       training=False)
-                       .dataset_from_tfrecords([DATADIR+'mnist/test.tfrecord']))
+                       .from_tfrecords([DATADIR+'mnist/test.tfrecord']))
 ```
 
 ### Define and Learn Model Using Defined Datasets
@@ -179,7 +179,7 @@ Download and convert ADE20k dataset to tfrecord by defined function download_and
 download_and_convert_ADE20k(crop_size, overlap_buffer)
 ```
 
-### Convert Images and Labels to Tfrecord Format by TfrecordConverter()
+### Convert Images and Labels to Tfrecord Format by the TfrecordConverter()
 In download_and_convertADE20k(), split original images to patch image by `TfrecordConverter.get_patch()`
 Though ADE20k images have not same image size, tensorflow model input should be the exactly same size.
 ```Python
@@ -201,7 +201,7 @@ image_per_shards = 1000
 
 ~~~~~~~~~~~~~~some codes~~~~~~~~~~~~~~~~~~~~~~
 
-converter.tfrecord_from_path_label(imgs,
+converter.from_path_label(imgs,
                                    path_labels,
                                    dstdir +
                                    f'tfrecord/{dirname}.tfrecords',
@@ -209,8 +209,8 @@ converter.tfrecord_from_path_label(imgs,
 
  ```
 
-### Create Dataset by DatasetCreator()
-After generate tfrecord files by `TfrecordConverter.tfrecord_from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.<br/>
+### Create the Dataset by DatasetCreator()
+After generate tfrecord files by `TfrecordConverter.from_path_label`, create training and validation dataset from these tfrecords by DatasetCreator.<br/>
 If you use `input_shape` param in `DatasetCreator()` like below, `AugmentImge()` generate all transformation matrices when __init__() is called. It reduces CPU load while learning. 
 
 ```Python
@@ -233,7 +233,7 @@ ds_train, train_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       dtype=tf.float16,
                                       input_shape=input_shape,
                                       training=True)
-                       .dataset_from_tfrecords(tfrecords_train))
+                       .from_tfrecords(tfrecords_train))
 
 tfrecords_valid = glob(
     DATADIR+'ADE20k/ADEChallengeData2016/tfrecord/validation_*.tfrecords')
@@ -244,11 +244,11 @@ ds_valid, valid_cnt = (DatasetCreator(shuffle_buffer=batch_size,
                                       random_crop=input_size,
                                       dtype=tf.float16,
                                       training=False)
-                       .dataset_from_tfrecords(tfrecords_valid))
+                       .from_tfrecords(tfrecords_valid))
 
 ```
 
-### Define and Learn Model Using Defined Datasets
+### Define and Learn Model Using the Datasets
 Last step is define and fit and evaluate Model.
 ```Python
 # define model
@@ -272,15 +272,14 @@ model.evaluate(ds_valid,
 
 ## Adjust sampling ratios from multiple tfrecord files
 If number of images in each class are significantly imvalanced, you may want adjust sampling ratios from each class.
-`DatasetCreator.dataset_from_tfrecords` could accepts sampling ratios. <br/>
-In that case, you must use 2 dimensional nested list representing tfrecord files to `path_records` in `DatasetCreator.dataset_from_tfrecords()` and assign `sampling_ratios` parameter for every 1 dimensional lists in 2 dimensional `path_records`.
+`DatasetCreator.from_tfrecords` could accepts sampling ratios. <br/>
+In that case, you must use 2 dimensional nested list representing tfrecord files to `path_records` in `DatasetCreator.from_tfrecords()` and assign `sampling_ratios` parameter for every 1 dimensional lists in 2 dimensional `path_records`.
 A simple example was written in test_tfaug.py like below:
 ```python
 dc = DatasetCreator(shuffle_buffer, batch_size,
-                    label_type='class',
                     repeat=False,
                     **DATAGEN_CONF,  training=True)
-ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
+ds, cnt = dc.from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
                                      [path_tfrecord_1, path_tfrecord_1]],
                                     ratio_samples=np.array([1,10],dtype=np.float32))
 ```
@@ -289,8 +288,7 @@ ds, cnt = dc.dataset_from_tfrecords([[path_tfrecord_0, path_tfrecord_0],
 Whole code is written in aug_multi_input() in sample_tfaug.py
 
 First, you should generate Tfrecords that have multiple inputs.
-You must specifiy the params "n_imgin" in tfrecord_from_path_label() which means the number of input images.
-and you must pass sets of multiple input filepaths to 1st arg like below.
+Next, you must pass sets of multiple input filepaths to 1st arg like below.
 ```Python
 # prepare inputs and labels
 batch_size = 2
@@ -302,21 +300,21 @@ labels = np.random.randint(0, 10, 10)
 path_record = DATADIR + 'multi_input.tfrecord'
 
 # generate tfrecords an one-liner
-TfrecordConverter().tfrecord_from_path_label(list(zip(filepaths0, filepaths1)), 
+TfrecordConverter().from_path_label(list(zip(filepaths0, filepaths1)), 
                                              labels, 
                                              path_record,
-                                             n_imgin=2)   
+                                             image_per_shard=2)
                                              
 # define dataset in a one-line
 dc = DatasetCreator(1, batch_size, **aug_parms, repeat=True, training=True)
-ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+ds, imgcnt = dc.from_tfrecords(path_record)
 ```
 
 After generating multiple input tfrecords, you just create dataset from it.
 ```Python
 # define the dataset
 dc = DatasetCreator(shuffle_buffer, batch_size, **aug_parms, repeat=True, training=True)
-ds, imgcnt = dc.dataset_from_tfrecords(path_record)
+ds, imgcnt = dc.from_tfrecords(path_record)
 ```
 
 Dataset `ds` generate a tuple ({'image_in0':data2, 'image_in1':data2,...,}, labels) at every steps.

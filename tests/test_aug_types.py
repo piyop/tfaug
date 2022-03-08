@@ -153,12 +153,11 @@ class TestAugTypes(unittest.TestCase):
 
 if __name__ == '__main__':
     pass
-    # unittest.main()
-    
+    unittest.main()    
     # testimg = 'lenna_l.png'    
-    prm = params(resize=(50, 50),
-           random_blur=0.2,
-           random_blur_kernel=5,
-           training=True)
+    # prm = params(resize=(50, 50),
+    #        random_blur=1,
+    #        random_blur_kernel=5,
+    #        training=True)
     
-    tool.test_aug_prm(prm, 'test', testimg, testlbl, DATADIR)
+    # tool.test_aug_prm(prm, 'test', testimg, testlbl, DATADIR)
